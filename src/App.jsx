@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Analytics } from "@vercel/analytics/react";
+
 const PRESETS = [
   { id: 'post', name: 'POST', width: 1080, height: 1440 },
   { id: 'square', name: 'SQUARE', width: 1080, height: 1080 },
@@ -12,7 +12,8 @@ export default function App() {
   const [images, setImages] = useState([]);
   const [preset, setPreset] = useState(PRESETS[0]);
   const [speed, setSpeed] = useState(0.2);
-  const [exportFormat, setExportFormat] = useState('mp4'); // 'mp4', 'webm', 'gif'
+  const [exportFormat, setExportFormat] = useState('mp4');
+  
   const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -42,7 +43,6 @@ export default function App() {
 
   // --- СИНХРОНИЗАЦИЯ ТЕМНОЙ ТЕМЫ И ФИКС ЗУМА ---
   useEffect(() => {
-    // 1. Фикс для iOS/Android: жестко отключаем автоматический зум при фокусе на инпуте
     let metaViewport = document.querySelector('meta[name=viewport]');
     if (!metaViewport) {
       metaViewport = document.createElement('meta');
@@ -51,7 +51,6 @@ export default function App() {
     }
     metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
 
-    // 2. Синхронизация темной темы
     const updateTheme = (e) => {
       if (e.matches) {
         document.documentElement.classList.add('dark');
@@ -441,259 +440,333 @@ export default function App() {
     if (images.length === 0) return '0 MB';
     const pixelCount = preset.width * preset.height;
     const totalFrames = images.length;
-    
     let multiplier = 0.000000085; 
     if (exportFormat === 'webm') multiplier = 0.00000007;
     if (exportFormat === 'gif') multiplier = 0.00000015;
-
     const sizeMB = pixelCount * totalFrames * multiplier;
-    return `~ ${sizeMB < 0.1 ? '< 0.1' : sizeMB.toFixed(1)} MB`;
+    return `${sizeMB < 0.1 ? '< 0.1' : sizeMB.toFixed(1)} MB`;
+  };
+
+  const nextFrame = (e) => {
+    if (e) e.preventDefault();
+    if (images.length === 0) return;
+    setIsPlaying(false);
+    setCurrentFrame(prev => (prev + 1) % images.length);
+  };
+
+  const prevFrame = (e) => {
+    if (e) e.preventDefault();
+    if (images.length === 0) return;
+    setIsPlaying(false);
+    setCurrentFrame(prev => (prev - 1 + images.length) % images.length);
   };
 
   const ghostX = dragCoords.current.x - touchStartCoords.current.offsetX;
   const ghostY = dragCoords.current.y - touchStartCoords.current.offsetY;
 
+  const presetIndex = PRESETS.findIndex(p => p.id === preset.id);
+  const formatIndex = ['mp4', 'webm', 'gif'].indexOf(exportFormat);
+  const speedValue = speed === '' ? 0.1 : parseFloat(speed);
+  const speedPercent = Math.max(0, Math.min(100, ((speedValue - 0.1) / 0.9) * 100));
+
   return (
-    <div className="min-h-screen md:h-screen w-full text-black dark:text-white font-mono flex flex-col md:flex-row p-2 md:p-6 gap-2 md:gap-6 relative overflow-y-auto md:overflow-hidden selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black bg-grid">
+    <div className="min-h-[100dvh] w-full text-black dark:text-white font-mono flex flex-col items-center relative overflow-y-auto overflow-x-hidden selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black bg-grid px-4">
       
-      {/* Глобальный инпут для загрузки файлов */}
       <input
         type="file" multiple accept="image/*" className="hidden"
         ref={fileInputRef} onChange={(e) => { handleFiles(e.target.files); e.target.value = null; }}
       />
 
-      {/* Mobile Header */}
-      <div className="md:hidden flex shrink-0 items-center justify-between w-full px-2 z-40 pt-1">
-        <h1 className="text-[11px] font-bold tracking-wider md:tracking-widest uppercase">FRAME TO FRAME</h1>
-        <span className="text-[9px] text-black/40 dark:text-white/40 tracking-wider md:tracking-widest">v.1.1 (beta)</span>
+      {/* Вынесенная фиксированная шапка */}
+      <div className="fixed top-0 left-0 w-full px-[24px] py-[24px] flex justify-between items-start z-50 pointer-events-none">
+        <h1 className="text-[12px] tracking-widest uppercase font-medium opacity-60">FRAME TO FRAME</h1>
+        <span className="text-[10px] text-black/40 dark:text-white/40 tracking-widest">v.11.0 (refined)</span>
       </div>
 
-      {/* Sidebar (Settings) */}
-      <div className="w-full md:w-[340px] flex flex-col shrink-0 bg-white dark:bg-[#18181b] shadow-sm border border-black/10 dark:border-white/10 rounded-2xl md:rounded-3xl z-30 order-3 md:order-1 overflow-hidden md:h-full">
-        
-        {/* Desktop Header */}
-        <div className="hidden md:flex h-16 shrink-0 border-b border-black/5 dark:border-white/5 px-8 items-center justify-between">
-          <h1 className="text-[11px] font-bold tracking-wider md:tracking-widest uppercase text-black dark:text-white">FRAME TO FRAME</h1>
-          <span className="text-[10px] text-black/40 dark:text-white/40 tracking-wider md:tracking-widest">v.1.1 (beta)</span>
+      {/* Центральный контейнер.
+        СУЖЕН ДО 360px для идеальных пропорций мобильного экрана.
+        Анимация трансформации при старте (Zero State -> Reveal)
+      */}
+      <div 
+        className="w-full max-w-[360px] flex flex-col gap-[20px] z-10 relative pt-[82px] pb-[40px] transition-transform duration-[800ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
+        style={{ transform: images.length === 0 ? 'translateY(15vh)' : 'translateY(0)' }}
+      >
+
+        {/* 1. ОБЪЕДИНЕННАЯ ПЛАШКА (ПРЕВЬЮ + ТАЙМЛАЙН) */}
+        <div 
+          className={`bg-white dark:bg-[#121212] rounded-[24px] flex flex-col relative shrink-0 overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] shadow-[0_12px_40px_rgba(0,0,0,0.06)] dark:shadow-none
+            ${images.length === 0 ? 'h-[320px] scale-100' : 'h-[520px]'}
+            ${isDraggingOver && images.length === 0 ? 'bg-[#fafafa] dark:bg-[#18181b] scale-[0.98]' : ''}
+          `}
+          onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={onDropZone}
+        >
+          {/* Overlay для Drag&Drop */}
+          {isDraggingOver && images.length > 0 && (
+            <div className="absolute inset-0 bg-white/80 dark:bg-[#121212]/90 backdrop-blur-md z-50 flex flex-col items-center justify-center pointer-events-none animate-reveal-fast">
+               <div className="w-16 h-16 rounded-full bg-[#f4f4f5] dark:bg-[#1C1C1E] flex items-center justify-center mb-4 shadow-sm border border-black/5 dark:border-white/5">
+                 <span className="text-3xl font-light leading-none text-black/50 dark:text-white/50 mb-1">+</span>
+               </div>
+               <h3 className="text-[12px] tracking-widest uppercase font-medium">DROP TO ADD</h3>
+            </div>
+          )}
+
+          {images.length === 0 ? (
+            /* ZERO STATE (Чистое стартовое окно) */
+            <div className="flex-1 flex flex-col items-center justify-center animate-fade-in h-full w-full">
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="group flex flex-col items-center justify-center w-full h-full transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:scale-105 active:scale-95"
+              >
+                <div className="w-20 h-20 rounded-full bg-[#f4f4f5] dark:bg-[#1C1C1E] flex items-center justify-center mb-5 transition-colors duration-300 group-hover:bg-[#ebebeb] dark:group-hover:bg-[#27272a] shadow-sm dark:shadow-none">
+                  <span className="text-4xl font-light leading-none text-black/40 dark:text-white/40 mb-1 pointer-events-none">+</span>
+                </div>
+                <h3 className="text-[11px] tracking-widest uppercase mb-1 text-black/60 dark:text-white/60 font-medium">START PROJECT</h3>
+                <span className="text-[9px] tracking-widest uppercase text-black/30 dark:text-white/30">Drag & Drop</span>
+              </button>
+            </div>
+          ) : (
+            /* ACTIVE APP STATE */
+            <>
+              {/* Preview Area - Идеально фиксирует картинку, не ломая флекс-контейнер */}
+              <div className="p-[20px] flex flex-col items-center justify-center relative shrink-0 h-[348px] w-full animate-fade-in">
+                <div className="w-full h-full flex items-center justify-center">
+                  <img 
+                    src={images[currentFrame]?.url} 
+                    alt="Frame" 
+                    className="rounded-[16px] shadow-[0_8px_24px_rgba(0,0,0,0.08)] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)] bg-[#f4f4f5] dark:bg-[#09090b] object-cover pointer-events-none transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                    style={{ aspectRatio: `${preset.width} / ${preset.height}`, maxHeight: '100%', maxWidth: '100%' }}
+                  />
+                </div>
+              </div>
+
+              {/* Timeline Area (172px) */}
+              <div className="flex flex-col flex-1 min-h-0 animate-fade-in">
+                
+                {/* Центрированный Плеер (Без текста SEQUENCE) */}
+                <div className="h-[44px] px-[20px] flex items-center justify-center z-30 relative shrink-0">
+                  <div className="flex items-center p-1 gap-1.5 bg-[#f4f4f5] dark:bg-[#1C1C1E] rounded-full border border-black/5 dark:border-white/5 shadow-inner">
+                    <button 
+                      type="button" onPointerDown={prevFrame} 
+                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-all text-black/70 hover:text-black dark:text-white/70 dark:hover:text-white"
+                    >
+                      <svg fill="currentColor" viewBox="0 0 24 24" className="w-4 h-4"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                    </button>
+                    
+                    <button 
+                      type="button" onPointerDown={(e) => { e.preventDefault(); setIsPlaying(!isPlaying); }} 
+                      className="w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-[#27272a] shadow-sm active:scale-95 transition-all text-black dark:text-white"
+                    >
+                      {isPlaying ? (
+                        <svg fill="currentColor" viewBox="0 0 24 24" className="w-3.5 h-3.5"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                      ) : (
+                        <svg fill="currentColor" viewBox="0 0 24 24" className="w-3.5 h-3.5 ml-0.5"><path d="M8 5v14l11-7z"/></svg>
+                      )}
+                    </button>
+                    
+                    <button 
+                      type="button" onPointerDown={nextFrame} 
+                      className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 active:scale-90 transition-all text-black/70 hover:text-black dark:text-white/70 dark:hover:text-white"
+                    >
+                      <svg fill="currentColor" viewBox="0 0 24 24" className="w-4 h-4"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scroll Area - ДОБАВЛЕНЫ ОТСТУПЫ py-4, чтобы активный кадр не обрезался при увеличении (scale) */}
+                <div 
+                  ref={timelineRef}
+                  className={`flex-1 px-[20px] py-[16px] flex gap-[12px] items-center custom-scrollbar scroll-smooth-disabled overflow-x-auto min-h-0 ${
+                    isDragging ? 'touch-none' : ''
+                  }`}
+                >
+                  {images.map((img, index) => (
+                    <div
+                      key={img.id}
+                      data-index={index}
+                      className={`frame-item select-none [-webkit-touch-callout:none] relative group flex-shrink-0 w-[52px] h-[72px] cursor-grab active:cursor-grabbing rounded-[12px] overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]
+                        ${currentFrame === index 
+                          ? 'scale-[1.15] shadow-[0_8px_16px_rgba(0,0,0,0.12)] ring-[1.5px] ring-black dark:ring-white z-10 opacity-100' 
+                          : 'scale-[0.95] ring-1 ring-black/10 dark:ring-white/10 opacity-40 hover:opacity-80 hover:scale-100'}
+                        ${touchDraggedIndex === index ? 'opacity-20' : ''}`}
+                      onMouseDown={(e) => handlePointerDown(e, index)}
+                      onTouchStart={(e) => handlePointerDown(e, index)}
+                      onClick={(e) => {
+                        if (isSwiping.current || hasDragged.current) {
+                          e.preventDefault(); e.stopPropagation(); return;
+                        }
+                        setCurrentFrame(index);
+                        setIsPlaying(false);
+                      }}
+                    >
+                      <img 
+                        src={img.url} 
+                        alt="Thumb" 
+                        className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-300 ${currentFrame === index ? 'opacity-100' : ''}`} 
+                      />
+                      
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeImage(index); }}
+                        className={`absolute top-0.5 right-0.5 w-4 h-4 bg-black/80 backdrop-blur-sm text-white dark:bg-white/90 dark:text-black rounded-full flex items-center justify-center transition-all duration-200 z-20
+                          ${currentFrame === index && !isDragging 
+                            ? 'opacity-100 scale-100 pointer-events-auto' 
+                            : 'opacity-0 scale-75 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto'}`}
+                      >
+                        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5">
+                          <line x1="3" y1="3" x2="11" y2="11" />
+                          <line x1="11" y1="3" x2="3" y2="11" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {images.length < MAX_IMAGES && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="group flex-shrink-0 w-[52px] h-[72px] bg-[#f4f4f5] dark:bg-[#1C1C1E] rounded-[12px] hover:bg-[#ebebeb] dark:hover:bg-[#27272a] active:scale-95 flex flex-col items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] gap-1 border border-black/5 dark:border-white/5 ml-1"
+                    >
+                      <span className="text-xl font-light pointer-events-none text-black/40 group-hover:text-black dark:text-white/40 dark:group-hover:text-white transition-colors leading-none">+</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="flex-1 p-4 md:p-8 flex flex-col gap-6 md:gap-10 md:overflow-y-auto custom-scrollbar">
-          
-          {/* Upload Block */}
-          <div className="hidden md:flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-wider md:tracking-widest">FRAMES</h2>
-              <span className="text-[10px]">{images.length}/{MAX_IMAGES}</span>
-            </div>
-            <div
-              onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
-              onDragLeave={() => setIsDraggingOver(false)}
-              onDrop={onDropZone}
-              onClick={() => fileInputRef.current?.click()}
-              className={`group border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200
-                ${isDraggingOver ? 'border-black bg-black/5 dark:border-white dark:bg-white/5' : 'border-black/10 bg-white md:hover:border-black/30 dark:border-white/10 dark:bg-[#18181b] dark:md:hover:border-white/30'}
-                ${images.length >= MAX_IMAGES ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <span className="text-2xl font-light leading-none mb-3 pointer-events-none text-black/30 group-hover:text-black dark:text-white/30 dark:group-hover:text-white transition-colors">+</span>
-              <p className="text-[10px] tracking-wider md:tracking-widest uppercase text-black/40 group-hover:text-black/60 dark:text-white/40 dark:group-hover:text-white/60 pointer-events-none transition-colors">Add Frames</p>
-            </div>
-          </div>
-
-          {/* Settings Block */}
-          <div className="flex flex-col gap-6 md:gap-8">
-            
-            {/* FORMAT */}
-            <div className="flex flex-col gap-3 md:gap-4 px-1 md:px-0">
-              <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-wider md:tracking-widest">FORMAT</h2>
-              <div className="grid grid-cols-3 md:flex md:flex-col gap-2">
-                {PRESETS.map(p => (
-                  <button
-                    key={p.id} type="button" onClick={() => { setPreset(p); setIsPlaying(false); }}
-                    className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-xl md:rounded-2xl border transition-all md:flex-row md:justify-between md:p-4 md:text-left
-                      ${preset.id === p.id 
-                        ? 'border-black bg-black text-white dark:border-white dark:bg-white dark:text-black shadow-sm' 
-                        : 'border-black/10 bg-white text-black md:hover:border-black/30 dark:border-white/10 dark:bg-[#18181b] dark:text-white dark:md:hover:border-white/30'}`}
-                  >
-                    <span className="text-[10px] font-normal tracking-wider md:tracking-widest mb-0.5 md:mb-0">{p.name}</span>
-                    <span className={`text-[8px] md:text-[10px] ${preset.id === p.id ? 'text-white/60 dark:text-black/60' : 'text-black/40 dark:text-white/40'}`}>
-                      {p.width} × {p.height}
-                    </span>
-                  </button>
-                ))}
+        {/* PROGRESSIVE DISCLOSURE */}
+        {images.length > 0 && (
+          <>
+            {/* 2. COMPACT SETTINGS BENTO (SIZE & SPEED) - Расположены ВЫШЕ экспорта */}
+            <div className="bg-white dark:bg-[#121212] rounded-[24px] p-[20px] flex flex-col justify-between shrink-0 h-[196px] animate-reveal delay-1 shadow-[0_12px_40px_rgba(0,0,0,0.04)] dark:shadow-none border border-black/5 dark:border-white/5">
+              
+              {/* Magic Motion Format Selector */}
+              <div className="flex flex-col gap-[12px]">
+                <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-widest leading-[14px] font-medium">SIZE</h2>
+                <div className="relative flex w-full bg-[#f4f4f5] dark:bg-[#1C1C1E] p-1 rounded-[20px] h-[72px]">
+                  
+                  {/* Sliding Indicator (ЧИСТЫЙ ЧЕРНЫЙ, БЕЗ ТЕНИ) */}
+                  <div 
+                    className="absolute top-1 bottom-1 bg-black dark:bg-white rounded-[16px] transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                    style={{ 
+                      width: 'calc((100% - 8px) / 3)', 
+                      transform: `translateX(calc(${presetIndex} * 100%))` 
+                    }}
+                  />
+                  
+                  {PRESETS.map((p) => (
+                    <button
+                      key={p.id} type="button" onClick={() => { setPreset(p); setIsPlaying(false); }}
+                      className={`flex-1 flex flex-col items-center justify-center relative z-10 transition-colors duration-300
+                        ${preset.id === p.id 
+                          ? 'text-white dark:text-black font-medium' 
+                          : 'text-black/50 hover:text-black dark:text-white/50 dark:hover:text-white'}`}
+                    >
+                      <span className="text-[10px] tracking-widest mb-0.5">{p.name}</span>
+                      <span className={`text-[8px] transition-colors ${preset.id === p.id ? 'text-white/60 dark:text-black/60' : 'text-black/40 dark:text-white/40'}`}>
+                        {p.width}×{p.height}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="flex flex-col gap-3 md:gap-4 px-1 md:px-0">
-              <div className="flex justify-between items-center">
-                <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-wider md:tracking-widest">INTERVAL (SEC)</h2>
+              {/* Speed Row */}
+              <div className="flex items-center justify-between gap-[16px] h-[48px]">
+                <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-widest shrink-0 w-[44px] font-medium">SPEED</h2>
+                
+                {/* Кастомный ползунок */}
+                <div className="flex-1 relative h-[24px] flex items-center group touch-none">
+                  <div className="absolute w-full h-[6px] bg-[#f4f4f5] dark:bg-[#1C1C1E] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-black dark:bg-white transition-all duration-75" 
+                      style={{ width: `${speedPercent}%` }}
+                    />
+                  </div>
+                  <input
+                    type="range" min="0.1" max="1.0" step="0.05" value={speed === '' ? 0.1 : speed}
+                    onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                    className="absolute w-full h-full opacity-0 cursor-pointer z-20"
+                  />
+                  <div 
+                    className="absolute w-[18px] h-[18px] bg-white dark:bg-[#e4e4e7] border border-black/5 dark:border-white/10 rounded-full shadow-[0_2px_8px_rgba(0,0,0,0.15)] pointer-events-none transition-transform duration-100 ease-out group-active:scale-[1.3] z-10"
+                    style={{ left: `calc(${speedPercent}% - 9px)` }}
+                  />
+                </div>
+
                 <input
                   type="number" min="0.01" max="1.0" step="0.01" value={speed}
                   onChange={(e) => setSpeed(e.target.value)}
-                  // Вернули hover для обводки, чтобы соответствовало плашкам
-                  className="w-16 md:w-20 h-7 md:h-8 bg-white border border-black/10 rounded-full text-[10px] md:text-[11px] outline-none text-center transition-colors md:hover:border-black/30 focus:!border-black focus:ring-0 dark:bg-[#18181b] dark:border-white/10 dark:md:hover:border-white/30 dark:focus:!border-white no-spinners"
+                  className="w-[60px] h-full bg-[#f4f4f5] rounded-[16px] text-[10px] outline-none text-center transition-colors dark:bg-[#1C1C1E] font-medium no-spinners"
                 />
               </div>
-              <input
-                type="range" min="0.1" max="1.0" step="0.05" value={speed === '' ? 0.1 : speed}
-                onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                className="w-full h-8 md:h-10 appearance-none cursor-pointer custom-slider outline-none bg-transparent"
-              />
             </div>
 
-            <div className="flex flex-col gap-3 md:gap-4 px-1 md:px-0">
-              <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-wider md:tracking-widest">OUTPUT</h2>
-              <div className="flex border border-black/10 dark:border-white/10 p-1 bg-white dark:bg-[#18181b] rounded-full">
-                {['mp4', 'webm', 'gif'].map(f => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setExportFormat(f)}
-                    className={`flex-1 text-[10px] py-2 rounded-full transition-all uppercase tracking-wider md:tracking-widest
-                      ${exportFormat === f 
-                        ? 'bg-black text-white shadow-sm dark:bg-white dark:text-black' 
-                        : 'text-black/50 hover:text-black dark:text-white/50 dark:hover:text-white'}`}
-                  >
-                    {f}
-                  </button>
-                ))}
+            {/* 3. EXPORT BENTO */}
+            <div className="bg-white dark:bg-[#121212] rounded-[24px] p-[20px] flex flex-col justify-between shrink-0 h-[196px] animate-reveal delay-2 shadow-[0_12px_40px_rgba(0,0,0,0.04)] dark:shadow-none border border-black/5 dark:border-white/5">
+              
+              {/* Magic Motion Output Format Selector */}
+              <div className="flex flex-col gap-[12px]">
+                <h2 className="text-[10px] text-black/50 dark:text-white/50 uppercase tracking-widest leading-[14px] font-medium">OUTPUT</h2>
+                <div className="relative flex w-full bg-[#f4f4f5] dark:bg-[#1C1C1E] p-1 rounded-full h-[48px]">
+                  
+                  {/* Sliding Indicator (ЧИСТЫЙ ЧЕРНЫЙ, БЕЗ ТЕНИ) */}
+                  <div 
+                    className="absolute top-1 bottom-1 bg-black dark:bg-white rounded-full transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                    style={{ 
+                      width: 'calc((100% - 8px) / 3)', 
+                      transform: `translateX(calc(${formatIndex} * 100%))` 
+                    }}
+                  />
+
+                  {['mp4', 'webm', 'gif'].map((f) => (
+                    <button
+                      key={f} type="button" onClick={() => setExportFormat(f)}
+                      className={`flex-1 relative z-10 flex items-center justify-center text-[10px] tracking-widest transition-colors duration-300 uppercase h-full
+                        ${exportFormat === f 
+                          ? 'text-white dark:text-black font-medium' 
+                          : 'text-black/50 hover:text-black dark:text-white/50 dark:hover:text-white'}`}
+                    >
+                      <span>{f}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="text-[10px] text-black/40 dark:text-white/40 text-center uppercase tracking-wider md:tracking-widest mt-0.5">
-                EST. SIZE: {getEstimatedSize()}
-              </div>
-            </div>
 
-          </div>
-        </div>
-
-        {/* Footer / Export */}
-        <div className="shrink-0 p-4 md:p-8 bg-white dark:bg-[#18181b] border-t border-black/5 dark:border-white/5">
-          <button
-            type="button" onClick={exportVideo} disabled={images.length === 0 || isExporting}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-3 md:py-4 rounded-full text-[11px] tracking-wider md:tracking-widest uppercase transition-all
-              ${images.length === 0 || isExporting 
-                ? 'bg-black/5 text-black/30 dark:bg-white/5 dark:text-white/30 cursor-not-allowed' 
-                : 'bg-black text-white hover:bg-black/80 shadow-sm dark:bg-white dark:text-black dark:hover:bg-zinc-200'}`}
-          >
-            {isExporting ? 'RENDERING...' : 'EXPORT'}
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content Area (Правая часть) */}
-      <div className="flex-none md:flex-1 flex flex-col min-w-0 z-10 order-2 gap-2 md:gap-6">
-        
-        {/* Preview Area */}
-        <div className="h-[50vh] md:h-auto md:flex-1 relative min-h-0 pointer-events-none">
-          <div className="absolute inset-0 flex items-center justify-center">
-            {images.length > 0 ? (
-              <div 
-                className="relative bg-white dark:bg-[#18181b] border border-black/10 dark:border-white/10 flex items-center justify-center overflow-hidden transition-all duration-300 z-10 rounded-2xl shadow-xl"
-                style={{ aspectRatio: `${preset.width} / ${preset.height}`, maxHeight: '100%', maxWidth: '100%' }}
-              >
-                <img src={images[currentFrame]?.url} alt="Frame" className="w-full h-full object-cover pointer-events-none" />
-              </div>
-            ) : (
-              <div className="text-black/30 dark:text-white/30 flex flex-col items-center gap-4 relative z-10 tracking-wider md:tracking-widest text-[10px]">
-                NO DATA
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Timeline */}
-        <div className="shrink-0 bg-white dark:bg-[#18181b] shadow-sm border border-black/10 dark:border-white/10 rounded-2xl md:rounded-3xl flex flex-col relative z-20 pointer-events-auto overflow-hidden">
-          
-          <div className="h-10 md:h-12 border-b border-black/5 dark:border-white/5 flex items-center justify-between px-4 md:px-6 bg-white dark:bg-[#18181b] z-30 relative text-[9px] md:text-[10px] uppercase tracking-wider md:tracking-widest">
-            {/* Добавили flex и счетчик лимита кадров */}
-            <div className="flex items-center gap-2 text-black/50 dark:text-white/50">
-              <span>{images.length > 0 ? `FRAME ${currentFrame + 1} OF ${images.length}` : 'TIMELINE'}</span>
-              <span className="text-black/30 dark:text-white/30">[{images.length}/{MAX_IMAGES}]</span>
-            </div>
-            
-            <button
-              type="button"
-              onPointerDown={(e) => { e.preventDefault(); setIsPlaying(p => !p); }}
-              disabled={images.length === 0}
-              className={`w-16 md:w-20 h-7 md:h-8 flex justify-center items-center rounded-full text-[10px] md:text-[11px] transition-all ${
-                images.length === 0 
-                  ? 'bg-black/5 text-black/20 dark:bg-white/5 dark:text-white/30 cursor-not-allowed' 
-                  : 'bg-black text-white hover:bg-black/80 shadow-sm dark:bg-white dark:text-black dark:hover:bg-zinc-200'
-              }`}
-            >
-              {isPlaying ? 'PAUSE' : 'PLAY'}
-            </button>
-          </div>
-
-          <div 
-            ref={timelineRef}
-            className={`h-24 md:h-36 p-3 md:p-6 flex gap-3 md:gap-4 items-center custom-scrollbar scroll-smooth-disabled overflow-x-auto overflow-y-hidden ${
-              isDragging ? 'touch-none' : ''
-            }`}
-          >
-            {images.map((img, index) => (
-              <div
-                key={img.id}
-                data-index={index}
-                className={`frame-item select-none [-webkit-touch-callout:none] relative group flex-shrink-0 w-14 h-20 md:w-20 md:h-28 cursor-grab active:cursor-grabbing border-2 rounded-xl overflow-hidden transition-colors duration-150
-                  ${currentFrame === index 
-                    ? 'border-black dark:border-white z-10' 
-                    : 'border-black/10 md:hover:border-black/30 dark:border-white/10 dark:md:hover:border-white/30'}
-                  ${touchDraggedIndex === index ? 'opacity-20' : 'opacity-100'}`}
-                onMouseDown={(e) => handlePointerDown(e, index)}
-                onTouchStart={(e) => handlePointerDown(e, index)}
-                onClick={(e) => {
-                  if (isSwiping.current || hasDragged.current) {
-                    e.preventDefault(); e.stopPropagation(); return;
-                  }
-                  setCurrentFrame(index);
-                  setIsPlaying(false);
-                }}
-              >
-                <img 
-                  src={img.url} 
-                  alt="Thumb" 
-                  className={`w-full h-full object-cover transition-opacity pointer-events-none ${
-                    currentFrame === index ? 'opacity-100' : 'opacity-30 md:group-hover:opacity-100'
-                  }`} 
-                />
-                
-                <div className="absolute -top-6 left-0 text-[10px] text-black/40 dark:text-white/40 pointer-events-none">
-                  {String(index + 1).padStart(2, '0')}
+              {/* Export Centered */}
+              <div className="flex flex-col items-center gap-[12px]">
+                <div className="text-[10px] text-black/40 dark:text-white/40 tracking-widest uppercase leading-[14px] font-medium">
+                  EST. SIZE: {getEstimatedSize()}
                 </div>
 
                 <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removeImage(index); }}
-                  className={`absolute top-1 md:top-1.5 right-1 md:right-1.5 w-5 h-5 md:w-6 md:h-6 bg-black text-white dark:bg-white dark:text-black rounded-full flex items-center justify-center transition-opacity z-20
-                    ${currentFrame === index && !isDragging 
-                      ? 'opacity-100 pointer-events-auto' 
-                      : 'opacity-0 pointer-events-none ' + (!isDragging ? 'md:group-hover:opacity-100 md:group-hover:pointer-events-auto' : '')}`}
+                  type="button" onClick={exportVideo} disabled={images.length === 0 || isExporting}
+                  className={`flex items-center justify-center w-full h-[48px] rounded-full text-[11px] tracking-widest uppercase transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]
+                    ${images.length === 0 || isExporting 
+                      ? 'bg-[#f4f4f5] text-black/30 dark:bg-[#1C1C1E] dark:text-white/30 cursor-not-allowed' 
+                      : 'bg-black text-white hover:scale-[0.98] active:scale-95 dark:bg-white dark:text-black shadow-md dark:shadow-none'}`}
                 >
-                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-2.5 h-2.5 md:w-3 md:h-3">
-                    <line x1="3" y1="3" x2="11" y2="11" />
-                    <line x1="11" y1="3" x2="3" y2="11" />
-                  </svg>
+                  {isExporting ? (
+                    <span className="animate-pulse font-medium">...</span>
+                  ) : (
+                    <span className="font-medium">EXPORT</span>
+                  )}
                 </button>
               </div>
-            ))}
-            
-            {images.length < MAX_IMAGES && (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={`group flex-shrink-0 w-14 h-20 md:w-20 md:h-28 border border-dashed border-black/10 rounded-xl md:hover:border-black/30 hover:bg-[#FAFAFA] dark:border-white/10 dark:md:hover:border-white/30 dark:hover:bg-white/5 flex items-center justify-center transition-colors ${images.length > 0 ? 'ml-1 md:ml-2' : ''}`}
-              >
-                <span className="text-xl md:text-2xl font-light pointer-events-none text-black/30 group-hover:text-black dark:text-white/30 dark:group-hover:text-white transition-colors">+</span>
-              </button>
-            )}
-          </div>
-        </div>
+
+            </div>
+          </>
+        )}
+
       </div>
 
       {/* GHOST / DRAG PREVIEW */}
       <div
         ref={ghostRef}
-        className={`fixed top-0 left-0 w-14 h-20 md:w-20 md:h-28 border-2 border-black dark:border-white rounded-xl bg-white/80 dark:bg-[#18181b]/80 backdrop-blur-sm shadow-xl z-[9999] pointer-events-none overflow-hidden transition-opacity duration-150 origin-top-left ${
+        className={`fixed top-0 left-0 w-[52px] h-[72px] cursor-grabbing rounded-[12px] bg-white/80 dark:bg-[#121212]/80 backdrop-blur-md z-[9999] pointer-events-none overflow-hidden transition-opacity duration-150 origin-top-left ${
           isDragging ? 'opacity-100' : 'opacity-0'
         }`}
         style={{ 
@@ -704,45 +777,61 @@ export default function App() {
         }}
       >
         {isDragging && images[touchDraggedIndex] ? (
-          <img src={images[touchDraggedIndex].url} className="w-full h-full object-cover opacity-80" />
+          <img src={images[touchDraggedIndex].url} className="absolute inset-0 w-full h-full object-cover opacity-80" />
         ) : null}
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
-        .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
-        .custom-scrollbar { scrollbar-width: thin; scrollbar-color: transparent transparent; }
-        .custom-scrollbar:hover { scrollbar-color: rgba(0,0,0,0.15) transparent; }
+        /* PREMIUM ANIMATIONS (Swiss/Framer Style) */
+        @keyframes revealUp {
+          0% { opacity: 0; transform: translateY(30px) scale(0.98); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes fadeIn {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        .animate-reveal {
+          animation: revealUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-reveal-fast {
+          animation: revealUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.6s ease-in forwards;
+        }
+        .delay-1 { animation-delay: 0.1s; opacity: 0; }
+        .delay-2 { animation-delay: 0.2s; opacity: 0; }
 
-        .dark .custom-scrollbar:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
-        .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
-        .dark .custom-scrollbar:hover { scrollbar-color: rgba(255,255,255,0.15) transparent; }
+        /* Убираем нативный скроллбар для красоты, оставляя функционал */
+        .custom-scrollbar::-webkit-scrollbar { display: none; }
+        .custom-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
         .global-dragging, .global-dragging * { cursor: grabbing !important; }
         
+        /* СТРОГО СОВМЕЩЕННАЯ СЕТКА */
         .bg-grid {
           background-color: #F4F4F5;
           background-image: 
-            linear-gradient(to right, #00000006 1px, transparent 1px),
-            linear-gradient(to bottom, #00000006 1px, transparent 1px);
+            linear-gradient(to right, rgba(0,0,0,0.04) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0,0,0,0.04) 1px, transparent 1px);
           background-size: 24px 24px;
-          background-position: center center;
+          background-position: calc(50% - 12px) top;
         }
 
         .dark .bg-grid {
           background-color: #09090b;
           background-image: 
-            linear-gradient(to right, #ffffff06 1px, transparent 1px),
-            linear-gradient(to bottom, #ffffff06 1px, transparent 1px);
+            linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+          background-position: calc(50% - 12px) top;
         }
 
         .custom-slider::-webkit-slider-runnable-track {
           width: 100%;
           height: 1px;
           background: rgba(0,0,0,0.2);
+          transition: background 0.3s;
         }
         
         .dark .custom-slider::-webkit-slider-runnable-track {
@@ -759,6 +848,11 @@ export default function App() {
           cursor: pointer;
           margin-top: -7.5px;
           box-shadow: none !important;
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .custom-slider::-webkit-slider-thumb:hover {
+          transform: scale(1.2);
         }
 
         .dark .custom-slider::-webkit-slider-thumb {
@@ -784,6 +878,11 @@ export default function App() {
           cursor: pointer;
           border: none;
           box-shadow: none !important;
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .custom-slider::-moz-range-thumb:hover {
+          transform: scale(1.2);
         }
 
         .dark .custom-slider::-moz-range-thumb {
@@ -791,15 +890,9 @@ export default function App() {
         }
 
         .no-spinners::-webkit-inner-spin-button, 
-        .no-spinners::-webkit-outer-spin-button { 
-          -webkit-appearance: none; 
-          margin: 0; 
-        }
-        .no-spinners {
-          -moz-appearance: textfield;
-        }
+        .no-spinners::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .no-spinners { -moz-appearance: textfield; }
       `}} />
-      <Analytics />
     </div>
   );
 }
