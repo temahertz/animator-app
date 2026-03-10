@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-
+import { Analytics } from "@vercel/analytics/react";
 const PRESETS = [
   { id: 'post', name: 'POST', width: 1080, height: 1440 },
   { id: 'square', name: 'SQUARE', width: 1080, height: 1080 },
@@ -799,6 +799,7 @@ export default function App() {
           -moz-appearance: textfield;
         }
       `}} />
+      <Analytics />
     </div>
   );
 }
