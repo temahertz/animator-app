@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 
 const SIZES = [1080, 1350, 1440, 1920, 2560];
 const SPEEDS = [0.1, 0.5, 1];
@@ -45,6 +45,9 @@ export default function App() {
   const pendingDragIndex = useRef(null);
   const isTouchDev = useRef(false);
   const activateDragRef = useRef(null);
+  const framePositionsRef = useRef(new Map());
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
   const isDragging = touchDraggedIndex !== null;
 
   const minIdx = Math.min(sizeRange[0], sizeRange[1]);
@@ -67,6 +70,12 @@ export default function App() {
   }, []);
 
   activateDragRef.current = (index) => {
+    // Position ghost immediately before showing it
+    if (ghostRef.current) {
+      const x = dragCoords.current.x - touchStartCoords.current.offsetX;
+      const y = dragCoords.current.y - touchStartCoords.current.offsetY;
+      ghostRef.current.style.transform = `translate(${x}px, ${y}px) scale(1.08)`;
+    }
     setTouchDraggedIndex(index);
     touchDraggedIndexRef.current = index;
     if (window.navigator?.vibrate && isTouchDev.current) window.navigator.vibrate(50);
@@ -84,6 +93,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isPlaying, images.length, speed]);
 
+
   useEffect(() => {
     if (currentFrame >= images.length) {
       setCurrentFrame(Math.max(0, images.length - 1));
@@ -100,17 +110,45 @@ export default function App() {
     return () => document.body.classList.remove('global-dragging');
   }, [isDragging]);
 
-  const handleFiles = (files) => {
+  const getEdgeBrightness = (url) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      const s = 32;
+      c.width = s; c.height = s;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, s, s);
+      const d = ctx.getImageData(0, 0, s, s).data;
+      let total = 0, count = 0;
+      for (let i = 0; i < s; i++) {
+        for (const [x, y] of [[i, 0], [i, s-1], [0, i], [s-1, i]]) {
+          const p = (y * s + x) * 4;
+          total += d[p] * 0.299 + d[p+1] * 0.587 + d[p+2] * 0.114;
+          count++;
+        }
+      }
+      resolve(total / count);
+    };
+    img.onerror = () => resolve(0);
+    img.src = url;
+  });
+
+  const handleFiles = async (files) => {
     const validFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
     const slotsAvailable = MAX_IMAGES - images.length;
     const filesToAdd = validFiles.slice(0, slotsAvailable);
     if (filesToAdd.length < validFiles.length) {
       alert(`LIMIT REACHED: ${MAX_IMAGES} FRAMES MAX.`);
     }
-    const newImages = filesToAdd.map(file => ({
-      id: Math.random().toString(36).substr(2, 9),
-      url: URL.createObjectURL(file),
-      file
+    const newImages = await Promise.all(filesToAdd.map(async (file) => {
+      const url = URL.createObjectURL(file);
+      const brightness = await getEdgeBrightness(url);
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        url,
+        file,
+        lightEdges: brightness > 240
+      };
     }));
     setImages(prev => [...prev, ...newImages]);
   };
@@ -199,27 +237,68 @@ export default function App() {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   };
 
+  // --- FLIP animation for smooth reordering ---
+  const captureFramePositions = () => {
+    const container = timelineRef.current;
+    if (!container) return;
+    const items = container.querySelectorAll('.frame-item');
+    items.forEach(el => {
+      const id = el.dataset.id;
+      if (id) framePositionsRef.current.set(id, el.getBoundingClientRect().left);
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (framePositionsRef.current.size === 0) return;
+    const container = timelineRef.current;
+    if (!container) return;
+    const draggedId = touchDraggedIndexRef.current !== null
+      ? imagesRef.current[touchDraggedIndexRef.current]?.id
+      : null;
+    const items = container.querySelectorAll('.frame-item');
+    items.forEach(el => {
+      const id = el.dataset.id;
+      if (!id || id === draggedId) return;
+      const prevLeft = framePositionsRef.current.get(id);
+      if (prevLeft === undefined) return;
+      const currLeft = el.getBoundingClientRect().left;
+      const dx = prevLeft - currLeft;
+      if (Math.abs(dx) < 1) return;
+      el.style.transition = 'none';
+      el.style.transform = `translateX(${dx}px)`;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.style.transition = 'transform 250ms cubic-bezier(0.16, 1, 0.3, 1)';
+          el.style.transform = '';
+        });
+      });
+    });
+    framePositionsRef.current = new Map();
+  }, [images]);
+
   // --- DRAG AND DROP FRAMES ---
   const checkReorder = (x, y, currentIndex) => {
     const now = Date.now();
-    if (now - lastReorderTime.current < 150) return currentIndex;
-    const element = document.elementFromPoint(x, y);
-    if (!element) return currentIndex;
-    const targetFrame = element.closest('.frame-item');
-    if (targetFrame) {
-      const targetIndex = Number(targetFrame.dataset.index);
-      if (!isNaN(targetIndex) && targetIndex !== currentIndex) {
-        setImages(prev => {
-          const newImages = [...prev];
-          const [movedItem] = newImages.splice(currentIndex, 1);
-          newImages.splice(targetIndex, 0, movedItem);
-          return newImages;
-        });
-        lastReorderTime.current = now;
-        return targetIndex;
-      }
-    }
-    return currentIndex;
+    if (now - lastReorderTime.current < 200) return currentIndex;
+    const container = timelineRef.current;
+    if (!container) return currentIndex;
+    const rect = container.getBoundingClientRect();
+    if (y < rect.top - 30 || y > rect.bottom + 30) return currentIndex;
+    const relativeX = x - rect.left + container.scrollLeft - 12;
+    const targetIndex = Math.max(0, Math.min(
+      Math.round(relativeX / 60),
+      imagesRef.current.length - 1
+    ));
+    if (targetIndex === currentIndex) return currentIndex;
+    captureFramePositions();
+    setImages(prev => {
+      const newImages = [...prev];
+      const [movedItem] = newImages.splice(currentIndex, 1);
+      newImages.splice(targetIndex, 0, movedItem);
+      return newImages;
+    });
+    lastReorderTime.current = now;
+    return targetIndex;
   };
 
   const startAutoScrollLoop = () => {
@@ -276,7 +355,7 @@ export default function App() {
         if (ghostRef.current) {
           const x = clientX - touchStartCoords.current.offsetX;
           const y = clientY - touchStartCoords.current.offsetY;
-          ghostRef.current.style.transform = `translate(${x}px, ${y}px) scale(1.02)`;
+          ghostRef.current.style.transform = `translate(${x}px, ${y}px) scale(1.08)`;
         }
         if (timelineRef.current) {
           const rect = timelineRef.current.getBoundingClientRect();
@@ -637,9 +716,9 @@ export default function App() {
 
           {/* Preview Area — fixed zone, image adapts to aspect ratio */}
           <div className="w-full flex flex-col items-center justify-center px-[20px]">
-            <div className="w-full max-w-[320px] h-[320px] flex items-center justify-center">
+            <div className="w-full max-w-[320px] h-[320px] flex items-center justify-center relative z-[2]">
               <div
-                className="rounded-[14px] overflow-hidden relative bg-black transition-all duration-300 ease-out"
+                className="rounded-[14px] overflow-hidden relative transition-all duration-300 ease-out"
                 style={{
                   width: currentWidth >= currentHeight ? 320 : Math.round(320 * currentWidth / currentHeight),
                   height: currentWidth <= currentHeight ? 320 : Math.round(320 * currentHeight / currentWidth),
@@ -650,6 +729,9 @@ export default function App() {
                   alt="Frame"
                   className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                 />
+                {images[currentFrame]?.lightEdges && (
+                  <div className="absolute inset-0 rounded-[14px] pointer-events-none z-10" style={{ boxShadow: 'inset 0 0 0 1px #C8C8C8' }} />
+                )}
               </div>
             </div>
           </div>
@@ -714,8 +796,8 @@ export default function App() {
                 <div
                   key={img.id}
                   data-index={index}
-                  className={`frame-item select-none [-webkit-touch-callout:none] relative group flex-shrink-0 w-[55px] h-[75px] cursor-grab active:cursor-grabbing rounded-[14px] overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]
-                    ${touchDraggedIndex === index ? 'opacity-20' : ''}`}
+                  data-id={img.id}
+                  className={`frame-item select-none [-webkit-touch-callout:none] relative group flex-shrink-0 w-[55px] h-[75px] cursor-grab active:cursor-grabbing rounded-[14px] ${touchDraggedIndex === index ? 'opacity-20' : ''}`}
                   onMouseDown={(e) => handlePointerDown(e, index)}
                   onTouchStart={(e) => handlePointerDown(e, index)}
                   onClick={(e) => {
@@ -723,12 +805,8 @@ export default function App() {
                     setCurrentFrame(index); setIsPlaying(false);
                   }}
                 >
-                  <img src={img.url} alt="Thumb" className="absolute inset-0 w-full h-full object-cover pointer-events-none bg-[#f4f4f4] dark:bg-[#1C1C1E]" />
-                  {/* Border overlay — renders on top of image, inside overflow-hidden */}
-                  <div
-                    className="absolute inset-0 rounded-[14px] pointer-events-none z-10"
-                    style={{ border: currentFrame === index ? '2px solid #000' : '0.5px solid #828282' }}
-                  />
+                  <img src={img.url} alt="Thumb" className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[14px] bg-[#f4f4f4] dark:bg-[#1C1C1E]" />
+                  <div className="absolute inset-0 rounded-[14px] pointer-events-none z-10" style={{ boxShadow: currentFrame === index ? 'inset 0 0 0 2px #000' : img.lightEdges ? 'inset 0 0 0 1px #C8C8C8' : 'none' }} />
                   {currentFrame === index && (
                     <button
                       type="button" onClick={(e) => { e.stopPropagation(); removeImage(index); }}
@@ -745,11 +823,14 @@ export default function App() {
               {images.length < MAX_IMAGES && (
                 <button
                   type="button" onClick={() => fileInputRef.current?.click()}
-                  className="flex-shrink-0 w-[55px] h-[75px] rounded-[14px] relative overflow-hidden flex flex-col items-center justify-center transition-colors duration-300 hover:bg-[#ebebeb] dark:hover:bg-[#27272a]"
+                  className="group flex-shrink-0 w-[55px] h-[75px] rounded-[14px] bg-[#f4f4f4] dark:bg-[#1C1C1E] flex flex-col items-center justify-center gap-[5px] py-[19px] transition-colors duration-200"
                 >
-                  <span className="text-[9px] font-light text-black/50 dark:text-white/50 leading-none">+</span>
-                  <span className="text-[9px] tracking-wider uppercase text-black/50 dark:text-white/50 mt-[4px]">ADD</span>
-                  <div className="absolute inset-0 rounded-[14px] pointer-events-none" style={{ border: '0.5px solid #828282' }} />
+                  <div className="w-[20px] h-[20px] rounded-full flex items-center justify-center group-hover:bg-white dark:group-hover:bg-black transition-colors duration-200">
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <path d="M4 0.5V7.5M0.5 4H7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" className="text-[#828282] group-hover:text-black dark:group-hover:text-white transition-colors duration-200" />
+                    </svg>
+                  </div>
+                  <span className="text-[9px] leading-[1.2] uppercase text-[#828282] group-hover:text-black dark:group-hover:text-white transition-colors duration-200">ADD</span>
                 </button>
               )}
             </div>
@@ -797,14 +878,15 @@ export default function App() {
                   {/* Circle anchors — bottom layer, no dashed borders */}
                   {SIZES.map((s, i) => {
                     const left = 2 + i * sizeStep;
+                    const isOnBlack = i > minIdx && i < maxIdx;
                     return (
                       <div
                         key={s}
-                        className="absolute top-0 w-[55px] h-[59px] flex items-center justify-center z-[1] cursor-pointer"
+                        className="group/anchor absolute top-0 w-[55px] h-[59px] flex items-center justify-center z-[1] cursor-pointer"
                         style={{ left: `${left}px` }}
                         onPointerDown={(e) => handleSizePointerDown(e, i)}
                       >
-                        <span className="text-[9px] leading-[1.2] uppercase text-[#828282]">{s}</span>
+                        <span className={`text-[9px] leading-[1.2] uppercase text-[#828282] transition-colors duration-200 ${isOnBlack ? 'group-hover/anchor:text-white dark:group-hover/anchor:text-black' : 'group-hover/anchor:text-black dark:group-hover/anchor:text-white'}`}>{s}</span>
                       </div>
                     );
                   })}
@@ -850,9 +932,9 @@ export default function App() {
                         className={`flex-1 h-[55px] rounded-[27.5px] flex items-center justify-center relative z-10 cursor-pointer
                           ${exportFormat === f
                             ? 'text-black dark:text-white'
-                            : 'text-[#828282]'}`}
+                            : 'text-[#828282] hover:text-black dark:hover:text-white transition-colors duration-200'}`}
                       >
-                        <span className="text-[9px] leading-[1.2] uppercase transition-colors duration-200">{f}</span>
+                        <span className="text-[9px] leading-[1.2] uppercase">{f}</span>
                       </button>
                     ))}
                     {/* Inset shadow overlay */}
@@ -879,13 +961,14 @@ export default function App() {
                   {/* Anchor labels at 0.1, 0.5, 1 positions */}
                   {SPEEDS.map((s) => {
                     const left = speedToLeft(s);
+                    const isOnBlack = s < speed;
                     return (
                       <div
                         key={s}
-                        className="absolute top-0 w-[55px] h-[59px] flex items-center justify-center pointer-events-none z-[5]"
+                        className="group/speed absolute top-0 w-[55px] h-[59px] flex items-center justify-center z-[5]"
                         style={{ left: `${left}px` }}
                       >
-                        <span className="text-[9px] leading-[1.2] text-[#828282] uppercase">
+                        <span className={`text-[9px] leading-[1.2] text-[#828282] uppercase transition-colors duration-200 ${isOnBlack ? 'group-hover/speed:text-white dark:group-hover/speed:text-black' : 'group-hover/speed:text-black dark:group-hover/speed:text-white'}`}>
                           {s === 1 ? '1' : s.toFixed(1).replace('.', ',')}
                         </span>
                       </div>
@@ -940,16 +1023,18 @@ export default function App() {
       {/* Ghost / Drag Preview */}
       <div
         ref={ghostRef}
-        className={`fixed top-0 left-0 w-[55px] h-[75px] cursor-grabbing rounded-[16px] bg-white/80 dark:bg-[#121212]/80 backdrop-blur-md z-[9999] pointer-events-none overflow-hidden transition-opacity duration-150 origin-top-left ${
+        className={`fixed top-0 left-0 w-[55px] h-[75px] cursor-grabbing rounded-[14px] z-[9999] pointer-events-none overflow-hidden origin-top-left ${
           isDragging ? 'opacity-100' : 'opacity-0'
         }`}
         style={{
           willChange: 'transform',
-          transform: isDragging ? `translate(${ghostX}px, ${ghostY}px) scale(1.02)` : 'translate(-999px, -999px)'
+          transform: isDragging ? `translate(${ghostX}px, ${ghostY}px) scale(1.08)` : 'translate(-999px, -999px)',
+          transition: 'none',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.12)',
         }}
       >
         {isDragging && images[touchDraggedIndex] && (
-          <img src={images[touchDraggedIndex].url} className="absolute inset-0 w-full h-full object-cover opacity-80" />
+          <img src={images[touchDraggedIndex].url} className="absolute inset-0 w-full h-full object-cover" />
         )}
       </div>
 
