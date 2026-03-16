@@ -1,15 +1,49 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 
 const SIZES = [1080, 1350, 1440, 1920, 2560];
 const SPEEDS = [0.1, 0.5, 1];
 const MAX_IMAGES = 20;
 
+const getEdgeBrightness = (url) => new Promise((resolve) => {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas');
+    const s = 32;
+    c.width = s; c.height = s;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, s, s);
+    const d = ctx.getImageData(0, 0, s, s).data;
+    let total = 0, count = 0;
+    for (let i = 0; i < s; i++) {
+      for (const [x, y] of [[i, 0], [i, s-1], [0, i], [s-1, i]]) {
+        const p = (y * s + x) * 4;
+        total += d[p] * 0.299 + d[p+1] * 0.587 + d[p+2] * 0.114;
+        count++;
+      }
+    }
+    resolve(total / count);
+  };
+  img.onerror = () => resolve(0);
+  img.src = url;
+});
+
+const drawImageCover = (ctx, img, w, h) => {
+  const scale = Math.max(w / img.width, h / img.height);
+  const x = (w - img.width * scale) / 2;
+  const y = (h - img.height * scale) / 2;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+};
+
+const formatSpeed = (v) => v === 1 ? '1' : v.toFixed(1).replace('.', ',');
+
 export default function App() {
   const [images, setImages] = useState([]);
 
-  const [sizeRange, setSizeRange] = useState([2, 3]); // [2,3] = 1440×1920
-  const [speed, setSpeed] = useState(0.5);
-  const [exportFormat, setExportFormat] = useState('WEBM');
+  const [sizeRange, setSizeRange] = useState([0, 0]); // [0,0] = 1080×1080
+  const [speed, setSpeed] = useState(0.2);
+  const [exportFormat, setExportFormat] = useState('MP4');
 
   const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -25,6 +59,15 @@ export default function App() {
   const timelineRef = useRef(null);
   const dualSliderRef = useRef(null);
   const speedSliderRef = useRef(null);
+  const settingsRowRoRef = useRef(null);
+  const [settingsRowWidth, setSettingsRowWidth] = useState(300);
+  const settingsRowRef = (el) => {
+    if (el && !settingsRowRoRef.current) {
+      const ro = new ResizeObserver(([entry]) => setSettingsRowWidth(entry.contentRect.width));
+      ro.observe(el);
+      settingsRowRoRef.current = ro;
+    }
+  };
 
   const isSwiping = useRef(false);
   const hasDragged = useRef(false);
@@ -41,6 +84,8 @@ export default function App() {
   const pressTimer = useRef(null);
   const ghostRef = useRef(null);
   const lastReorderTime = useRef(0);
+  const cachedGap = useRef(5);
+  const cachedContainerRect = useRef(null);
 
   const pendingDragIndex = useRef(null);
   const isTouchDev = useRef(false);
@@ -69,12 +114,20 @@ export default function App() {
     return () => mediaQuery.removeEventListener('change', updateTheme);
   }, []);
 
+
   activateDragRef.current = (index) => {
-    // Position ghost immediately before showing it
+    // Recalculate offset so ghost appears at original thumbnail position
+    touchStartCoords.current.offsetX = dragCoords.current.x - touchStartCoords.current.targetLeft;
+    touchStartCoords.current.offsetY = dragCoords.current.y - touchStartCoords.current.targetTop;
     if (ghostRef.current) {
-      const x = dragCoords.current.x - touchStartCoords.current.offsetX;
-      const y = dragCoords.current.y - touchStartCoords.current.offsetY;
+      const x = touchStartCoords.current.targetLeft;
+      const y = touchStartCoords.current.targetTop;
       ghostRef.current.style.transform = `translate(${x}px, ${y}px) scale(1.08)`;
+    }
+    // Cache gap & rect for drag performance (avoid getComputedStyle/getBoundingClientRect per move)
+    if (timelineRef.current) {
+      cachedGap.current = parseFloat(getComputedStyle(timelineRef.current).gap) || 5;
+      cachedContainerRect.current = timelineRef.current.getBoundingClientRect();
     }
     setTouchDraggedIndex(index);
     touchDraggedIndexRef.current = index;
@@ -93,7 +146,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isPlaying, images.length, speed]);
 
-
   useEffect(() => {
     if (currentFrame >= images.length) {
       setCurrentFrame(Math.max(0, images.length - 1));
@@ -104,34 +156,33 @@ export default function App() {
     }
   }, [images.length, currentFrame]);
 
+  // Auto-scroll timeline to keep active frame visible
   useEffect(() => {
-    if (isDragging) document.body.classList.add('global-dragging');
+    if (!timelineRef.current || images.length === 0 || isDragging) return;
+    const container = timelineRef.current;
+    const frameEl = container.children[currentFrame];
+    if (!frameEl) return;
+    const cRect = container.getBoundingClientRect();
+    const fRect = frameEl.getBoundingClientRect();
+    const visibleLeft = cRect.left + 11;
+    const visibleRight = cRect.right - 11;
+    if (fRect.right > visibleRight) {
+      // Going forward — current frame at left edge of new page
+      const targetScroll = Math.round(frameEl.offsetLeft - 11);
+      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+    } else if (fRect.left < visibleLeft) {
+      // Going backward — current frame at right edge of new page
+      const targetScroll = Math.round(frameEl.offsetLeft + frameEl.offsetWidth + 11 - container.clientWidth);
+      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+    }
+  }, [currentFrame, images.length, isDragging]);
+
+  const isAnyDragging = isDragging || isSizeDragging;
+  useEffect(() => {
+    if (isAnyDragging) document.body.classList.add('global-dragging');
     else document.body.classList.remove('global-dragging');
     return () => document.body.classList.remove('global-dragging');
-  }, [isDragging]);
-
-  const getEdgeBrightness = (url) => new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      const s = 32;
-      c.width = s; c.height = s;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0, s, s);
-      const d = ctx.getImageData(0, 0, s, s).data;
-      let total = 0, count = 0;
-      for (let i = 0; i < s; i++) {
-        for (const [x, y] of [[i, 0], [i, s-1], [0, i], [s-1, i]]) {
-          const p = (y * s + x) * 4;
-          total += d[p] * 0.299 + d[p+1] * 0.587 + d[p+2] * 0.114;
-          count++;
-        }
-      }
-      resolve(total / count);
-    };
-    img.onerror = () => resolve(0);
-    img.src = url;
-  });
+  }, [isAnyDragging]);
 
   const handleFiles = async (files) => {
     const validFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
@@ -153,13 +204,13 @@ export default function App() {
     setImages(prev => [...prev, ...newImages]);
   };
 
-  const onDropZone = useCallback((e) => {
+  const onDropZone = (e) => {
     e.preventDefault();
     setIsDraggingOver(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFiles(e.dataTransfer.files);
     }
-  }, [images.length]);
+  };
 
   const removeImage = (indexToRemove) => {
     setImages(prev => prev.filter((_, index) => index !== indexToRemove));
@@ -203,13 +254,15 @@ export default function App() {
     if (!speedSliderRef.current) return null;
     const rect = speedSliderRef.current.getBoundingClientRect();
     const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? 0);
-    // Thumb left ranges from 2 to 243, center at 122.5 = speed 0.5
-    const thumbLeft = Math.max(2, Math.min(clientX - rect.left - 27.5, 243));
+    const maxLeft = rect.width - 57; // width - thumb(55) - 2px padding
+    const midLeft = 2 + (maxLeft - 2) / 2;
+    const halfRange = (maxLeft - 2) / 2;
+    const thumbLeft = Math.max(2, Math.min(clientX - rect.left - 27.5, maxLeft));
     let raw;
-    if (thumbLeft <= 122.5) {
-      raw = 0.1 + ((thumbLeft - 2) / 120.5) * 0.4;
+    if (thumbLeft <= midLeft) {
+      raw = 0.1 + ((thumbLeft - 2) / halfRange) * 0.4;
     } else {
-      raw = 0.5 + ((thumbLeft - 122.5) / 120.5) * 0.5;
+      raw = 0.5 + ((thumbLeft - midLeft) / halfRange) * 0.5;
     }
     return Math.max(0.1, Math.min(1, Math.round(raw * 10) / 10));
   };
@@ -282,11 +335,14 @@ export default function App() {
     if (now - lastReorderTime.current < 200) return currentIndex;
     const container = timelineRef.current;
     if (!container) return currentIndex;
-    const rect = container.getBoundingClientRect();
+    const rect = cachedContainerRect.current || container.getBoundingClientRect();
     if (y < rect.top - 30 || y > rect.bottom + 30) return currentIndex;
-    const relativeX = x - rect.left + container.scrollLeft - 12;
+    const ghostCenterX = x - touchStartCoords.current.offsetX + 27.5;
+    const relativeX = ghostCenterX - rect.left + container.scrollLeft - 11;
+    const gap = cachedGap.current;
+    const itemStep = 55 + gap;
     const targetIndex = Math.max(0, Math.min(
-      Math.round(relativeX / 60),
+      Math.round((relativeX - 27.5) / itemStep),
       imagesRef.current.length - 1
     ));
     if (targetIndex === currentIndex) return currentIndex;
@@ -328,7 +384,7 @@ export default function App() {
     const clientX = isTouch ? e.touches[0].clientX : e.clientX;
     const clientY = isTouch ? e.touches[0].clientY : e.clientY;
     const targetRect = e.currentTarget.getBoundingClientRect();
-    touchStartCoords.current = { x: clientX, y: clientY, offsetX: clientX - targetRect.left, offsetY: clientY - targetRect.top };
+    touchStartCoords.current = { x: clientX, y: clientY, offsetX: clientX - targetRect.left, offsetY: clientY - targetRect.top, targetLeft: targetRect.left, targetTop: targetRect.top };
     dragCoords.current = { x: clientX, y: clientY };
     isSwiping.current = false;
     hasDragged.current = false;
@@ -358,7 +414,7 @@ export default function App() {
           ghostRef.current.style.transform = `translate(${x}px, ${y}px) scale(1.08)`;
         }
         if (timelineRef.current) {
-          const rect = timelineRef.current.getBoundingClientRect();
+          const rect = cachedContainerRect.current || timelineRef.current.getBoundingClientRect();
           const EDGE = 45;
           const maxScroll = timelineRef.current.scrollWidth - timelineRef.current.clientWidth;
           if (clientX < rect.left + EDGE && timelineRef.current.scrollLeft > 0) autoScroll.current.speed = -7;
@@ -422,11 +478,10 @@ export default function App() {
         touchDraggedIndexRef.current = null;
         hasDragged.current = true;
         autoScroll.current.speed = 0;
+        cachedContainerRect.current = null;
       }
     };
 
-    window.addEventListener('mousemove', handleGlobalMove, { passive: false });
-    window.addEventListener('mouseup', handleGlobalUp);
     window.addEventListener('pointermove', handleGlobalMove, { passive: false });
     window.addEventListener('pointerup', handleGlobalUp);
     window.addEventListener('pointercancel', handleGlobalUp);
@@ -434,8 +489,6 @@ export default function App() {
     window.addEventListener('touchend', handleGlobalUp);
     window.addEventListener('touchcancel', handleGlobalUp);
     return () => {
-      window.removeEventListener('mousemove', handleGlobalMove);
-      window.removeEventListener('mouseup', handleGlobalUp);
       window.removeEventListener('pointermove', handleGlobalMove);
       window.removeEventListener('pointerup', handleGlobalUp);
       window.removeEventListener('pointercancel', handleGlobalUp);
@@ -488,12 +541,7 @@ export default function App() {
           });
         }
         const frames = loadedImages.map(img => {
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
-          const x = (canvas.width / 2) - (img.width / 2) * scale;
-          const y = (canvas.height / 2) - (img.height / 2) * scale;
-          ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+          drawImageCover(ctx, img, canvas.width, canvas.height);
           return canvas.toDataURL('image/jpeg', 1.0);
         });
         window.gifshot.createGIF({
@@ -533,19 +581,13 @@ export default function App() {
 
       const dummyRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1000000 });
       dummyRecorder.start();
+      const requestFrame = () => {
+        const track = stream.getVideoTracks()[0];
+        if (track?.requestFrame) track.requestFrame();
+      };
       for (let w = 0; w < 3; w++) {
-        if (loadedImages.length > 0) {
-          const firstImg = loadedImages[0];
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          const scale = Math.max(canvas.width / firstImg.width, canvas.height / firstImg.height);
-          const x = (canvas.width / 2) - (firstImg.width / 2) * scale;
-          const y = (canvas.height / 2) - (firstImg.height / 2) * scale;
-          ctx.drawImage(firstImg, x, y, firstImg.width * scale, firstImg.height * scale);
-        }
-        if (stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].requestFrame) {
-          stream.getVideoTracks()[0].requestFrame();
-        }
+        if (loadedImages.length > 0) drawImageCover(ctx, loadedImages[0], canvas.width, canvas.height);
+        requestFrame();
         await new Promise(r => setTimeout(r, 50));
       }
       dummyRecorder.stop();
@@ -572,16 +614,8 @@ export default function App() {
 
       recorder.start();
       for (let i = 0; i < loadedImages.length; i++) {
-        const img = loadedImages[i];
-        const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
-        const x = (canvas.width / 2) - (img.width / 2) * scale;
-        const y = (canvas.height / 2) - (img.height / 2) * scale;
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
-        if (stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].requestFrame) {
-          stream.getVideoTracks()[0].requestFrame();
-        }
+        drawImageCover(ctx, loadedImages[i], canvas.width, canvas.height);
+        requestFrame();
         await new Promise(r => setTimeout(r, speed * 1000));
       }
       await new Promise(r => setTimeout(r, 200));
@@ -623,17 +657,26 @@ export default function App() {
   };
 
   // Speed slider geometry — piecewise linear: 0.1→left, 0.5→center, 1→right
+  const speedSegment = (settingsRowWidth - 59) / 2;
   const speedToLeft = (v) => {
-    if (v <= 0.5) return 2 + ((v - 0.1) / 0.4) * 120.5;
-    return 122.5 + ((v - 0.5) / 0.5) * 120.5;
+    if (v <= 0.5) return 2 + ((v - 0.1) / 0.4) * speedSegment;
+    return 2 + speedSegment + ((v - 0.5) / 0.5) * speedSegment;
   };
   const speedThumbLeft = speedToLeft(speed);
   const speedFillWidth = speedThumbLeft + 57; // thumb(55) + 2px right padding
 
   // Size slider geometry
-  const sizeStep = (300 - 59) / (SIZES.length - 1); // 60.25px
+  const sizeStep = (settingsRowWidth - 59) / (SIZES.length - 1);
   const sizeBarLeft = minIdx * sizeStep;
   const sizeBarWidth = (maxIdx - minIdx) * sizeStep + 59;
+
+  // Timeline gap: align last visible thumbnail with 3rd settings circle
+  // 7 thumbs on wide desktop, 6 on medium, 5 on narrow/mobile
+  const timelineGap = settingsRowWidth >= 417
+    ? Math.max(5, (settingsRowWidth - 387) / 6)
+    : settingsRowWidth >= 357
+      ? Math.max(5, (settingsRowWidth - 332) / 5)
+      : Math.max(5, (settingsRowWidth - 277) / 4);
 
   const ghostX = dragCoords.current.x - touchStartCoords.current.offsetX;
   const ghostY = dragCoords.current.y - touchStartCoords.current.offsetY;
@@ -680,7 +723,7 @@ export default function App() {
       {/* Zero State */}
       {images.length === 0 && (
         <div
-          className="relative z-10 flex flex-col items-center justify-center"
+          className="relative z-10 flex flex-col items-center justify-center flex-1"
           onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
           onDragLeave={() => setIsDraggingOver(false)}
           onDrop={onDropZone}
@@ -702,6 +745,7 @@ export default function App() {
       {images.length > 0 && (
         <div
           className="flex flex-col gap-[15px] items-center justify-center relative z-10 shrink-0 w-full"
+          style={{ '--ew': 'clamp(280px, min(calc(100vw - 40px), calc(100dvh - 440px)), 500px)' }}
           onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
           onDragLeave={() => setIsDraggingOver(false)}
           onDrop={onDropZone}
@@ -714,14 +758,17 @@ export default function App() {
             </div>
           )}
 
-          {/* Preview Area — fixed zone, image adapts to aspect ratio */}
+          {/* Preview Area */}
           <div className="w-full flex flex-col items-center justify-center px-[20px]">
-            <div className="w-full max-w-[320px] h-[320px] flex items-center justify-center relative z-[2]">
+            <div className="w-full flex items-center justify-center relative z-[2]" style={{ maxWidth: 'var(--ew)', height: 'var(--ew)' }}>
               <div
                 className="rounded-[14px] overflow-hidden relative transition-all duration-300 ease-out"
                 style={{
-                  width: currentWidth >= currentHeight ? 320 : Math.round(320 * currentWidth / currentHeight),
-                  height: currentWidth <= currentHeight ? 320 : Math.round(320 * currentHeight / currentWidth),
+                  aspectRatio: `${currentWidth} / ${currentHeight}`,
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  width: currentWidth >= currentHeight ? '100%' : 'auto',
+                  height: currentWidth <= currentHeight ? '100%' : 'auto',
                 }}
               >
                 <img
@@ -737,7 +784,7 @@ export default function App() {
           </div>
 
           {/* Player */}
-          <div className="flex items-center justify-between w-[320px] px-[12px]">
+          <div className="flex items-center justify-between px-[12px]" style={{ width: 'var(--ew)' }}>
             {/* Frame counter circle */}
             <div className="w-[55px] h-[55px] rounded-full flex flex-col items-center justify-center shrink-0">
               <span className="text-[9px] leading-[1.2] uppercase">
@@ -787,10 +834,11 @@ export default function App() {
           </div>
 
           {/* Frames Timeline */}
-          <div className="w-[319px] relative overflow-clip">
+          <div className="relative overflow-hidden" style={{ width: 'var(--ew)' }}>
             <div
               ref={timelineRef}
-              className={`flex items-center gap-[5px] overflow-x-auto hide-scrollbar px-[12px] ${isDragging ? 'touch-none' : ''}`}
+              className={`flex items-center overflow-x-auto hide-scrollbar px-[11px] ${isDragging ? 'touch-none' : ''}`}
+              style={{ gap: `${timelineGap}px`, maskImage: 'linear-gradient(90deg, transparent 0%, transparent 7px, black 11px, black calc(100% - 11px), transparent calc(100% - 7px), transparent 100%)', WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, transparent 7px, black 11px, black calc(100% - 11px), transparent calc(100% - 7px), transparent 100%)' }}
             >
               {images.map((img, index) => (
                 <div
@@ -798,6 +846,7 @@ export default function App() {
                   data-index={index}
                   data-id={img.id}
                   className={`frame-item select-none [-webkit-touch-callout:none] relative group flex-shrink-0 w-[55px] h-[75px] cursor-grab active:cursor-grabbing rounded-[14px] ${touchDraggedIndex === index ? 'opacity-20' : ''}`}
+                  style={isDragging ? { willChange: 'transform' } : undefined}
                   onMouseDown={(e) => handlePointerDown(e, index)}
                   onTouchStart={(e) => handlePointerDown(e, index)}
                   onClick={(e) => {
@@ -835,17 +884,13 @@ export default function App() {
               )}
             </div>
 
-            {/* Fade gradient left */}
-            <div className="absolute left-0 top-0 w-[15px] h-full pointer-events-none z-30" style={{ background: 'linear-gradient(90deg, rgb(255,255,255) 0%, rgba(255,255,255,0) 100%)' }} />
-            {/* Fade gradient right */}
-            <div className="absolute right-0 top-0 w-[15px] h-full pointer-events-none z-30" style={{ background: 'linear-gradient(-90deg, rgb(255,255,255) 0%, rgba(255,255,255,0) 100%)' }} />
           </div>
 
           {/* Settings Container */}
-          <div className="w-[320px] h-[170px] bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[32px] pt-[8px] pb-[10px] px-[10px] flex flex-col items-center justify-between shrink-0">
+          <div className="h-[170px] bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[32px] pt-[8px] pb-[10px] px-[10px] flex flex-col items-center justify-between shrink-0" style={{ width: 'var(--ew)' }}>
 
             {/* Settings Row */}
-            <div className="relative w-[300px] h-[59px] flex items-center justify-between">
+            <div ref={settingsRowRef} className="relative w-full h-[59px] flex items-center justify-between">
 
               {/* Default state: 3 white circles */}
               {activeSetting === null && (
@@ -857,19 +902,19 @@ export default function App() {
                     <span className="text-[9px] leading-[1.2] uppercase">{exportFormat}</span>
                   </button>
                   <button onClick={() => toggleSetting('speed')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white dark:bg-[#2A2A2C] transition-colors">
-                    <span className="text-[9px] leading-[1.2] lowercase">{speed === 1 ? '1' : speed.toFixed(1).replace('.', ',')} sec</span>
+                    <span className="text-[9px] leading-[1.2] lowercase">{formatSpeed(speed)} sec</span>
                   </button>
                 </div>
               )}
 
               {/* SIZE expanded */}
               {activeSetting === 'size' && (() => {
-                const sizeTransition = isSizeDragging ? 'none' : 'left 200ms ease-out, width 200ms ease-out';
-                const thumbTransition = isSizeDragging ? 'none' : 'left 200ms ease-out';
+                const sizeTransition = isSizeDragging ? 'none' : 'left 300ms cubic-bezier(0.16, 1, 0.3, 1), width 300ms cubic-bezier(0.16, 1, 0.3, 1)';
+                const thumbTransition = isSizeDragging ? 'none' : 'left 300ms cubic-bezier(0.16, 1, 0.3, 1)';
                 const leftThumbLeft = 2 + minIdx * sizeStep;
                 const rightThumbLeft = 2 + maxIdx * sizeStep;
                 return (
-                <div className="w-full h-[59px] relative bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[30px] touch-none select-none" ref={dualSliderRef}>
+                <div className={`w-full h-[59px] relative bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[30px] touch-none select-none ${isSizeDragging ? 'cursor-grabbing' : ''}`} ref={dualSliderRef}>
                   {/* Black range bar — animates smoothly */}
                   <div
                     className="absolute h-[59px] bg-black dark:bg-white rounded-[30px] pointer-events-none"
@@ -916,13 +961,14 @@ export default function App() {
               {activeSetting === 'format' && (() => {
                 const formats = ['WEBM', 'MP4', 'GIF'];
                 const selectedIdx = formats.indexOf(exportFormat);
-                const pillLeft = 2 + selectedIdx * (296 / 3);
+                const pillWidth = (settingsRowWidth - 4) / 3;
+                const pillLeft = 2 + selectedIdx * pillWidth;
                 return (
                   <div className="w-full h-[59px] relative flex items-center justify-between px-[2px] bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[30px]">
                     {/* Sliding white pill indicator */}
                     <div
                       className="absolute top-[2px] h-[55px] rounded-[27.5px] bg-white dark:bg-black shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)] z-0"
-                      style={{ left: `${pillLeft}px`, width: `${296 / 3}px`, transition: 'left 200ms ease-out' }}
+                      style={{ left: `${pillLeft}px`, width: `${pillWidth}px`, transition: 'left 200ms ease-out' }}
                     />
                     {/* Format options */}
                     {formats.map((f) => (
@@ -956,7 +1002,7 @@ export default function App() {
                   {/* Black fill — from left edge to thumb right + 2px */}
                   <div
                     className="absolute h-[59px] left-0 top-0 bg-black dark:bg-white rounded-[30px] pointer-events-none"
-                    style={{ width: `${speedFillWidth}px`, transition: isSpeedDragging ? 'none' : 'width 150ms ease-out' }}
+                    style={{ width: `${speedFillWidth}px`, transition: isSpeedDragging ? 'none' : 'width 300ms cubic-bezier(0.16, 1, 0.3, 1)' }}
                   />
                   {/* Anchor labels at 0.1, 0.5, 1 positions */}
                   {SPEEDS.map((s) => {
@@ -969,7 +1015,7 @@ export default function App() {
                         style={{ left: `${left}px` }}
                       >
                         <span className={`text-[9px] leading-[1.2] text-[#828282] uppercase transition-colors duration-200 ${isOnBlack ? 'group-hover/speed:text-white dark:group-hover/speed:text-black' : 'group-hover/speed:text-black dark:group-hover/speed:text-white'}`}>
-                          {s === 1 ? '1' : s.toFixed(1).replace('.', ',')}
+                          {formatSpeed(s)}
                         </span>
                       </div>
                     );
@@ -977,10 +1023,10 @@ export default function App() {
                   {/* White thumb — 2px inset from track top */}
                   <div
                     className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-black rounded-full flex items-center justify-center z-10 ${isSpeedDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                    style={{ left: `${speedThumbLeft}px`, filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.09))', transition: isSpeedDragging ? 'none' : 'left 150ms ease-out' }}
+                    style={{ left: `${speedThumbLeft}px`, filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.09))', transition: isSpeedDragging ? 'none' : 'left 300ms cubic-bezier(0.16, 1, 0.3, 1)' }}
                   >
                     <span className="text-[9px] leading-[1.2] text-black dark:text-white uppercase">
-                      {speed === 1 ? '1' : speed.toFixed(1).replace('.', ',')}
+                      {formatSpeed(speed)}
                     </span>
                   </div>
                   {/* Inset shadow overlay */}
@@ -1016,14 +1062,14 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <p className="relative z-10 text-[9px] leading-[1.2] text-center text-[#828282] w-[214px] shrink-0">
+      <p className="relative z-10 text-[9px] leading-[1.2] text-center text-[#828282] w-[214px] shrink-0 mt-[15px]">
         All image processing happens locally in your browser. We never upload, store, or see your files.
       </p>
 
       {/* Ghost / Drag Preview */}
       <div
         ref={ghostRef}
-        className={`fixed top-0 left-0 w-[55px] h-[75px] cursor-grabbing rounded-[14px] z-[9999] pointer-events-none overflow-hidden origin-top-left ${
+        className={`fixed top-0 left-0 w-[55px] h-[75px] cursor-grabbing rounded-[14px] z-[9999] pointer-events-none overflow-hidden origin-center ${
           isDragging ? 'opacity-100' : 'opacity-0'
         }`}
         style={{
