@@ -193,8 +193,33 @@ export default function App() {
     if (filesToAdd.length < validFiles.length) {
       alert(`LIMIT REACHED: ${MAX_IMAGES} FRAMES MAX.`);
     }
-    const newImages = await Promise.all(filesToAdd.map(async (file) => {
+    const MAX_DIM = 2560;
+    const resizeImage = (file) => new Promise((resolve) => {
       const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        if (img.width <= MAX_DIM && img.height <= MAX_DIM) {
+          resolve(url);
+          return;
+        }
+        const scale = Math.min(MAX_DIM / img.width, MAX_DIM / img.height);
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob((blob) => {
+          resolve(URL.createObjectURL(blob));
+        }, 'image/jpeg', 0.92);
+      };
+      img.onerror = () => resolve(url);
+      img.src = url;
+    });
+    const newImages = await Promise.all(filesToAdd.map(async (file) => {
+      const url = await resizeImage(file);
       const brightness = await getEdgeBrightness(url);
       return {
         id: Math.random().toString(36).substr(2, 9),
