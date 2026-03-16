@@ -739,8 +739,8 @@ export default function App() {
             <div className={`w-20 h-20 rounded-full bg-[#f4f4f4] dark:bg-[#1C1C1E] [@media(hover:hover)]:group-hover:bg-black dark:[@media(hover:hover)]:group-hover:bg-white flex items-center justify-center mb-6 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] [@media(hover:hover)]:group-hover:scale-105 group-active:scale-95 ${isDraggingOver ? '!scale-110 !bg-black dark:!bg-white' : ''}`}>
               <span className={`text-4xl font-light leading-none text-black/40 dark:text-white/40 [@media(hover:hover)]:group-hover:text-white dark:[@media(hover:hover)]:group-hover:text-black mb-1 pointer-events-none transition-colors duration-300 ${isDraggingOver ? '!text-white dark:!text-black' : ''}`}>+</span>
             </div>
-            <h3 className="text-[9px] tracking-widest uppercase mb-0 text-black dark:text-white">START PROJECT</h3>
-            <span className="text-[9px] tracking-widest uppercase text-black/30 dark:text-white/30">Drag & Drop frames</span>
+            <h3 className="text-[9px] leading-[1.2] uppercase mb-[3px] text-black dark:text-white">START PROJECT</h3>
+            <span className="text-[9px] leading-[1.2] uppercase text-black/30 dark:text-white/30">Drag & Drop frames</span>
           </button>
         </div>
       )}
