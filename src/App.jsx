@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 
 const SIZES = [1080, 1350, 1440, 1920, 2560];
 const SPEEDS = [0.1, 0.5, 1];
-const MAX_IMAGES = 20;
+const MAX_IMAGES = 50;
 
 const getEdgeBrightness = (url) => new Promise((resolve) => {
   const img = new Image();
@@ -734,12 +734,12 @@ export default function App() {
         >
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="group flex flex-col items-center justify-center transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:scale-105 active:scale-95"
+            className="group flex flex-col items-center justify-center"
           >
-            <div className={`w-20 h-20 rounded-full bg-[#f4f4f4] dark:bg-[#1C1C1E] flex items-center justify-center mb-6 transition-all duration-300 ${isDraggingOver ? 'scale-110 bg-[#e8e8e8]' : ''}`}>
-              <span className="text-4xl font-light leading-none text-black/40 dark:text-white/40 mb-1 pointer-events-none">+</span>
+            <div className={`w-20 h-20 rounded-full bg-[#f4f4f4] dark:bg-[#1C1C1E] group-hover:bg-black dark:group-hover:bg-white flex items-center justify-center mb-6 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 group-active:scale-95 ${isDraggingOver ? '!scale-110 !bg-black dark:!bg-white' : ''}`}>
+              <span className={`text-4xl font-light leading-none text-black/40 dark:text-white/40 group-hover:text-white dark:group-hover:text-black mb-1 pointer-events-none transition-colors duration-300 ${isDraggingOver ? '!text-white dark:!text-black' : ''}`}>+</span>
             </div>
-            <h3 className="text-[9px] tracking-widest uppercase mb-1 text-black/60 dark:text-white/60">START PROJECT</h3>
+            <h3 className="text-[9px] tracking-widest uppercase mb-0 text-black dark:text-white">START PROJECT</h3>
             <span className="text-[9px] tracking-widest uppercase text-black/30 dark:text-white/30">Drag & Drop frames</span>
           </button>
         </div>
@@ -799,7 +799,7 @@ export default function App() {
             {/* Player Controls */}
             <div className="flex gap-[12px] items-center shrink-0">
               {/* Back */}
-              <button type="button" onPointerDown={prevFrame} className="w-[30px] h-[30px] flex items-center justify-center text-black dark:text-white active:scale-75 transition-transform p-[10px]">
+              <button type="button" onPointerDown={prevFrame} className="w-[30px] h-[30px] flex items-center justify-center text-black hover:text-[#828282] dark:text-white dark:hover:text-[#828282] transition-colors duration-200 p-[10px]">
                 <svg width="10" height="9" viewBox="0 0 10 9" fill="none">
                   <path d="M2 4.5L10 9V0L2 4.5Z" fill="currentColor"/>
                   <path d="M2 0H0V9H2V0Z" fill="currentColor"/>
@@ -810,7 +810,7 @@ export default function App() {
               <button
                 type="button"
                 onPointerDown={(e) => { e.preventDefault(); setIsPlaying(!isPlaying); }}
-                className="w-[55px] h-[55px] bg-black dark:bg-white text-white dark:text-black rounded-[27.5px] flex items-center justify-center transition-colors shrink-0"
+                className="w-[55px] h-[55px] bg-black hover:bg-[#3A3A3C] dark:bg-white dark:hover:bg-[#C8C8C8] text-white dark:text-black rounded-[27.5px] flex items-center justify-center transition-colors duration-200 shrink-0"
               >
                 {isPlaying ? (
                   <svg width="19" height="19" viewBox="0 0 19 19" fill="currentColor">
@@ -825,7 +825,7 @@ export default function App() {
               </button>
 
               {/* Forward */}
-              <button type="button" onPointerDown={nextFrame} className="w-[30px] h-[30px] flex items-center justify-center text-black dark:text-white active:scale-75 transition-transform p-[10px]">
+              <button type="button" onPointerDown={nextFrame} className="w-[30px] h-[30px] flex items-center justify-center text-black hover:text-[#828282] dark:text-white dark:hover:text-[#828282] transition-colors duration-200 p-[10px]">
                 <svg width="10" height="9" viewBox="0 0 10 9" fill="none">
                   <path d="M8 4.5L0 9V0L8 4.5Z" fill="currentColor"/>
                   <path d="M8 0H10V9H8V0Z" fill="currentColor"/>
@@ -859,14 +859,14 @@ export default function App() {
                   }}
                 >
                   <img src={img.url} alt="Thumb" className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[14px] bg-[#f4f4f4] dark:bg-[#1C1C1E]" />
-                  <div className="absolute inset-0 rounded-[14px] pointer-events-none z-10" style={{ boxShadow: currentFrame === index ? 'inset 0 0 0 2px #000' : img.lightEdges ? 'inset 0 0 0 1px #C8C8C8' : 'none' }} />
+                  <div className={`absolute inset-0 rounded-[14px] pointer-events-none z-10 ${currentFrame === index ? 'shadow-[inset_0_0_0_2px_#000] dark:shadow-[inset_0_0_0_2px_#fff]' : ''}`} style={{ boxShadow: currentFrame !== index && img.lightEdges ? 'inset 0 0 0 1px #C8C8C8' : currentFrame === index ? undefined : 'none' }} />
                   {currentFrame === index && (
                     <button
                       type="button" onClick={(e) => { e.stopPropagation(); removeImage(index); }}
-                      className="absolute top-[5px] right-[5px] w-[20px] h-[20px] bg-black text-white rounded-full flex items-center justify-center z-20"
+                      className="absolute top-[5px] right-[5px] w-[20px] h-[20px] bg-black dark:bg-white text-white dark:text-black rounded-full flex items-center justify-center z-20"
                     >
                       <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-                        <path d="M0.5 0.5L5.5 5.5M5.5 0.5L0.5 5.5" stroke="white" strokeWidth="1" strokeLinecap="round" />
+                        <path d="M0.5 0.5L5.5 5.5M5.5 0.5L0.5 5.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
                       </svg>
                     </button>
                   )}
@@ -878,7 +878,7 @@ export default function App() {
                   type="button" onClick={() => fileInputRef.current?.click()}
                   className="group flex-shrink-0 w-[55px] h-[75px] rounded-[14px] bg-[#f4f4f4] dark:bg-[#1C1C1E] flex flex-col items-center justify-center gap-[5px] py-[19px] transition-colors duration-200"
                 >
-                  <div className="w-[20px] h-[20px] rounded-full flex items-center justify-center group-hover:bg-white dark:group-hover:bg-black transition-colors duration-200">
+                  <div className="w-[20px] h-[20px] rounded-full flex items-center justify-center group-hover:bg-white dark:group-hover:bg-[#3A3A3C] transition-colors duration-200">
                     <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
                       <path d="M4 0.5V7.5M0.5 4H7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" className="text-[#828282] group-hover:text-black dark:group-hover:text-white transition-colors duration-200" />
                     </svg>
@@ -899,13 +899,13 @@ export default function App() {
               {/* Default state: 3 white circles */}
               {activeSetting === null && (
                 <div className="w-full h-full flex items-center justify-between px-[2px]">
-                  <button onClick={() => toggleSetting('size')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white dark:bg-[#2A2A2C] transition-colors">
+                  <button onClick={() => toggleSetting('size')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:hover:bg-[#4A4A4C] transition-colors duration-200">
                     <span className="text-[9px] leading-[1.2] uppercase">{currentHeight}</span>
                   </button>
-                  <button onClick={() => toggleSetting('format')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white dark:bg-[#2A2A2C] transition-colors">
+                  <button onClick={() => toggleSetting('format')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:hover:bg-[#4A4A4C] transition-colors duration-200">
                     <span className="text-[9px] leading-[1.2] uppercase">{exportFormat}</span>
                   </button>
-                  <button onClick={() => toggleSetting('speed')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white dark:bg-[#2A2A2C] transition-colors">
+                  <button onClick={() => toggleSetting('speed')} className="w-[55px] h-[55px] rounded-full flex items-center justify-center bg-white hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:hover:bg-[#4A4A4C] transition-colors duration-200">
                     <span className="text-[9px] leading-[1.2] lowercase">{formatSpeed(speed)} sec</span>
                   </button>
                 </div>
@@ -941,7 +941,7 @@ export default function App() {
                   })}
                   {/* Left white thumb — slides smoothly */}
                   <div
-                    className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-black rounded-full flex items-center justify-center z-10 ${isSizeDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-[#3A3A3C] rounded-full flex items-center justify-center z-10 ${isSizeDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
                     style={{ left: `${leftThumbLeft}px`, filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.09))', transition: thumbTransition }}
                     onPointerDown={(e) => handleSizePointerDown(e, minIdx)}
                   >
@@ -949,14 +949,14 @@ export default function App() {
                   </div>
                   {/* Right white thumb — always rendered, overlaps left when collapsed */}
                   <div
-                    className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-black rounded-full flex items-center justify-center z-10 ${isSizeDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-[#3A3A3C] rounded-full flex items-center justify-center z-10 ${isSizeDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
                     style={{ left: `${rightThumbLeft}px`, filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.09))', transition: thumbTransition }}
                     onPointerDown={(e) => handleSizePointerDown(e, maxIdx)}
                   >
                     <span className="text-[9px] leading-[1.2] uppercase text-black dark:text-white">{SIZES[maxIdx]}</span>
                   </div>
                   {/* Inset shadow overlay */}
-                  <div className="absolute inset-0 pointer-events-none rounded-[30px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)]" />
+                  <div className="absolute inset-0 pointer-events-none rounded-[30px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)] dark:shadow-[inset_0px_1px_6px_0px_rgba(0,0,0,0.6)]" />
                 </div>
                 );
               })()}
@@ -971,7 +971,7 @@ export default function App() {
                   <div className="w-full h-[59px] relative flex items-center justify-between px-[2px] bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[30px]">
                     {/* Sliding white pill indicator */}
                     <div
-                      className="absolute top-[2px] h-[55px] rounded-[27.5px] bg-white dark:bg-black shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)] z-0"
+                      className="absolute top-[2px] h-[55px] rounded-[27.5px] bg-white dark:bg-[#3A3A3C] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)] z-0"
                       style={{ left: `${pillLeft}px`, width: `${pillWidth}px`, transition: 'left 200ms ease-out' }}
                     />
                     {/* Format options */}
@@ -988,7 +988,7 @@ export default function App() {
                       </button>
                     ))}
                     {/* Inset shadow overlay */}
-                    <div className="absolute inset-0 pointer-events-none rounded-[30px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)]" />
+                    <div className="absolute inset-0 pointer-events-none rounded-[30px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)] dark:shadow-[inset_0px_1px_6px_0px_rgba(0,0,0,0.6)]" />
                   </div>
                 );
               })()}
@@ -1026,7 +1026,7 @@ export default function App() {
                   })}
                   {/* White thumb — 2px inset from track top */}
                   <div
-                    className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-black rounded-full flex items-center justify-center z-10 ${isSpeedDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    className={`absolute top-[2px] w-[55px] h-[55px] bg-white dark:bg-[#3A3A3C] rounded-full flex items-center justify-center z-10 ${isSpeedDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
                     style={{ left: `${speedThumbLeft}px`, filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.09))', transition: isSpeedDragging ? 'none' : 'left 300ms cubic-bezier(0.16, 1, 0.3, 1)' }}
                   >
                     <span className="text-[9px] leading-[1.2] text-black dark:text-white uppercase">
@@ -1034,7 +1034,7 @@ export default function App() {
                     </span>
                   </div>
                   {/* Inset shadow overlay */}
-                  <div className="absolute inset-0 pointer-events-none rounded-[30px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)]" />
+                  <div className="absolute inset-0 pointer-events-none rounded-[30px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)] dark:shadow-[inset_0px_1px_6px_0px_rgba(0,0,0,0.6)]" />
                 </div>
               )}
             </div>
@@ -1053,10 +1053,10 @@ export default function App() {
                 disabled={!activeSetting && (images.length === 0 || isExporting)}
                 className={`h-[55px] text-[9px] leading-[1.2] uppercase flex items-center justify-center transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]
                   ${activeSetting
-                    ? 'w-[55px] rounded-full bg-white dark:bg-[#121212] text-black dark:text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)]'
+                    ? 'w-[55px] rounded-full bg-white hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:hover:bg-[#4A4A4C] text-black dark:text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)]'
                     : images.length === 0 || isExporting
-                      ? 'w-full rounded-[50px] bg-white/50 dark:bg-[#2A2A2C] text-black/30 dark:text-white/30 cursor-not-allowed'
-                      : 'w-full rounded-[50px] bg-white dark:bg-[#121212] text-black dark:text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)]'}`}
+                      ? 'w-full rounded-[50px] bg-white/50 dark:bg-[#3A3A3C]/50 text-black/30 dark:text-white/30 cursor-not-allowed'
+                      : 'w-full rounded-[50px] bg-white hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:hover:bg-[#4A4A4C] text-black dark:text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)]'}`}
               >
                 {activeSetting ? 'OK' : isExporting ? <span className="animate-pulse">RENDERING...</span> : 'EXPORT'}
               </button>
