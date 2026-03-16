@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Analytics } from "@vercel/analytics/react";
 
 const SIZES = [1080, 1350, 1440, 1920, 2560];
 const SPEEDS = [0.1, 0.5, 1];
@@ -1098,6 +1099,7 @@ export default function App() {
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .global-dragging, .global-dragging * { cursor: grabbing !important; }
       `}} />
+      <Analytics />
     </div>
   );
 }
