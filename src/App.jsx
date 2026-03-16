@@ -89,6 +89,7 @@ export default function App() {
 
   const pendingDragIndex = useRef(null);
   const isTouchDev = useRef(false);
+  const touchHandled = useRef(false);
   const activateDragRef = useRef(null);
   const framePositionsRef = useRef(new Map());
   const imagesRef = useRef(images);
@@ -379,6 +380,9 @@ export default function App() {
 
   const handlePointerDown = (e, index) => {
     if (e.type === 'mousedown' && e.button !== 0) return;
+    // Prevent mousedown from firing after touchstart on mobile
+    if (e.type === 'touchstart') touchHandled.current = true;
+    if (e.type === 'mousedown' && touchHandled.current) { touchHandled.current = false; return; }
     const isTouch = !!e.touches;
     isTouchDev.current = isTouch;
     const clientX = isTouch ? e.touches[0].clientX : e.clientX;
@@ -715,7 +719,7 @@ export default function App() {
       />
 
       {/* Header */}
-      <div className="relative z-10 w-full flex justify-between items-start px-[20px] shrink-0">
+      <div className="relative z-10 w-full flex justify-between items-start px-[20px] mb-[15px] shrink-0">
         <span className="text-[9px] leading-[1.2] uppercase">frame to frame</span>
         <span className="text-[9px] leading-[1.2] text-right">v.11.0 (beta)</span>
       </div>
