@@ -1144,19 +1144,19 @@ export default function App() {
               {/* Export button / Progress bar / OK button */}
               {isExporting ? (
                 <div className="w-full h-[55px] relative bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[50px] overflow-hidden">
+                  {/* Static RENDERING text centered on gray track */}
+                  <span className="absolute inset-0 flex items-center justify-center text-[9px] leading-[1.2] uppercase text-[#828282]">
+                    RENDERING
+                  </span>
+                  {/* Black fill growing from left */}
                   <div
-                    className="absolute left-0 top-0 h-full bg-black dark:bg-white rounded-[50px] flex items-center justify-end transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                    className="absolute left-0 top-0 h-full bg-black dark:bg-white rounded-[50px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden"
                     style={{ width: `${Math.max(55, (exportProgress / 100) * 100)}%`, minWidth: '55px' }}
                   >
-                    <span className="text-[9px] leading-[1.2] uppercase text-white dark:text-black pr-[20px]">
+                    <span className="absolute right-[20px] text-[9px] leading-[1.2] uppercase text-white dark:text-black whitespace-nowrap">
                       {exportProgress}%
                     </span>
                   </div>
-                  {exportProgress < 80 && (
-                    <span className="absolute right-[20px] top-1/2 -translate-y-1/2 text-[9px] leading-[1.2] uppercase text-[#828282]">
-                      RENDERING
-                    </span>
-                  )}
                 </div>
               ) : (
               <button
