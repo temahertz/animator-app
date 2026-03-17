@@ -1145,18 +1145,20 @@ export default function App() {
               {isExporting ? (
                 <div className="w-full h-[55px] relative bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[50px] overflow-hidden">
                   {/* Static RENDERING text centered on gray track */}
-                  <span className="absolute inset-0 flex items-center justify-center text-[9px] leading-[1.2] uppercase text-[#828282]">
+                  <span className="absolute inset-0 flex items-center justify-center text-[9px] leading-[1.2] uppercase text-[#828282] z-[1]">
                     RENDERING
                   </span>
                   {/* Black fill growing from left */}
                   <div
-                    className="absolute left-0 top-0 h-full bg-black dark:bg-white rounded-[50px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden"
-                    style={{ width: `${Math.max(55, (exportProgress / 100) * 100)}%`, minWidth: '55px' }}
+                    className="absolute left-0 top-0 h-full bg-black dark:bg-white rounded-[50px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden z-[2]"
+                    style={{ width: `max(55px, ${exportProgress}%)` }}
                   >
-                    <span className="absolute right-[20px] text-[9px] leading-[1.2] uppercase text-white dark:text-black whitespace-nowrap">
+                    <span className="absolute right-0 w-[55px] text-center text-[9px] leading-[1.2] uppercase text-white dark:text-black whitespace-nowrap">
                       {exportProgress}%
                     </span>
                   </div>
+                  {/* Inset shadow overlay */}
+                  <div className="absolute inset-0 pointer-events-none rounded-[50px] shadow-[inset_0px_1px_4px_0px_rgba(0,0,0,0.25)] dark:shadow-[inset_0px_1px_6px_0px_rgba(0,0,0,0.6)] z-[3]" />
                 </div>
               ) : (
               <button
