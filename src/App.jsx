@@ -49,6 +49,7 @@ export default function App() {
   const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
 
@@ -542,8 +543,11 @@ export default function App() {
   const exportVideo = async () => {
     if (images.length === 0) return;
     setIsExporting(true);
+    setExportProgress(0);
     setIsPlaying(false);
     setActiveSetting(null);
+    const exportStartTime = Date.now();
+    const MIN_EXPORT_DURATION = 3000;
 
     const canvas = document.createElement('canvas');
     canvas.width = currentWidth;
@@ -581,19 +585,36 @@ export default function App() {
             document.head.appendChild(s);
           });
         }
-        const frames = loadedImages.map(img => {
-          drawImageCover(ctx, img, canvas.width, canvas.height);
-          return canvas.toDataURL('image/jpeg', 1.0);
-        });
+        const frames = [];
+        for (let i = 0; i < loadedImages.length; i++) {
+          drawImageCover(ctx, loadedImages[i], canvas.width, canvas.height);
+          frames.push(canvas.toDataURL('image/jpeg', 1.0));
+          setExportProgress(Math.round(((i + 1) / loadedImages.length) * 50));
+          await new Promise(r => setTimeout(r, 0));
+        }
         window.gifshot.createGIF({
           images: frames,
           interval: speed,
           gifWidth: canvas.width,
           gifHeight: canvas.height,
           sampleInterval: 2,
-          numWorkers: navigator.hardwareConcurrency || 2
-        }, (obj) => {
+          numWorkers: navigator.hardwareConcurrency || 2,
+          progressCallback: (p) => setExportProgress(50 + Math.round(p * 50))
+        }, async (obj) => {
+          const elapsed = Date.now() - exportStartTime;
+          if (elapsed < MIN_EXPORT_DURATION) {
+            const remaining = MIN_EXPORT_DURATION - elapsed;
+            const steps = 20;
+            const currentProg = 90;
+            for (let s = 0; s < steps; s++) {
+              setExportProgress(currentProg + Math.round(((s + 1) / steps) * (100 - currentProg)));
+              await new Promise(r => setTimeout(r, remaining / steps));
+            }
+          }
+          setExportProgress(100);
+          await new Promise(r => setTimeout(r, 300));
           setIsExporting(false);
+          setExportProgress(0);
           if (document.body.contains(canvas)) document.body.removeChild(canvas);
           if (!obj.error) {
             const a = document.createElement('a');
@@ -637,11 +658,19 @@ export default function App() {
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 50000000 });
       const chunks = [];
       recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = () => {
-        let extension = exportFormat.toLowerCase();
-        if (mimeType.includes('webm')) extension = 'webm';
-        if (mimeType.includes('mp4')) extension = 'mp4';
-        const blob = new Blob(chunks, { type: mimeType });
+      const finishExport = async (blob, extension) => {
+        const elapsed = Date.now() - exportStartTime;
+        if (elapsed < MIN_EXPORT_DURATION) {
+          const remaining = MIN_EXPORT_DURATION - elapsed;
+          const steps = 20;
+          const currentProg = Math.round((loadedImages.length / loadedImages.length) * 90);
+          for (let s = 0; s < steps; s++) {
+            setExportProgress(currentProg + Math.round(((s + 1) / steps) * (100 - currentProg)));
+            await new Promise(r => setTimeout(r, remaining / steps));
+          }
+        }
+        setExportProgress(100);
+        await new Promise(r => setTimeout(r, 300));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -650,13 +679,23 @@ export default function App() {
         a.click();
         document.body.removeChild(a);
         setIsExporting(false);
+        setExportProgress(0);
         if (document.body.contains(canvas)) document.body.removeChild(canvas);
+      };
+
+      recorder.onstop = () => {
+        let extension = exportFormat.toLowerCase();
+        if (mimeType.includes('webm')) extension = 'webm';
+        if (mimeType.includes('mp4')) extension = 'mp4';
+        const blob = new Blob(chunks, { type: mimeType });
+        finishExport(blob, extension);
       };
 
       recorder.start();
       for (let i = 0; i < loadedImages.length; i++) {
         drawImageCover(ctx, loadedImages[i], canvas.width, canvas.height);
         requestFrame();
+        setExportProgress(Math.round(((i + 1) / loadedImages.length) * 90));
         await new Promise(r => setTimeout(r, speed * 1000));
       }
       await new Promise(r => setTimeout(r, 200));
@@ -1102,20 +1141,38 @@ export default function App() {
                 est. size: {getEstimatedSize()}
               </div>
 
-              {/* Export button (full-width) or OK button (circle) */}
+              {/* Export button / Progress bar / OK button */}
+              {isExporting ? (
+                <div className="w-full h-[55px] relative bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[50px] overflow-hidden">
+                  <div
+                    className="absolute left-0 top-0 h-full bg-black dark:bg-white rounded-[50px] flex items-center justify-end transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                    style={{ width: `${Math.max(55, (exportProgress / 100) * 100)}%`, minWidth: '55px' }}
+                  >
+                    <span className="text-[9px] leading-[1.2] uppercase text-white dark:text-black pr-[20px]">
+                      {exportProgress}%
+                    </span>
+                  </div>
+                  {exportProgress < 80 && (
+                    <span className="absolute right-[20px] top-1/2 -translate-y-1/2 text-[9px] leading-[1.2] uppercase text-[#828282]">
+                      RENDERING
+                    </span>
+                  )}
+                </div>
+              ) : (
               <button
                 type="button"
                 onClick={() => activeSetting ? setActiveSetting(null) : exportVideo()}
-                disabled={!activeSetting && (images.length === 0 || isExporting)}
+                disabled={images.length === 0}
                 className={`h-[55px] text-[9px] leading-[1.2] uppercase flex items-center justify-center transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]
                   ${activeSetting
                     ? 'w-[55px] rounded-full bg-white [@media(hover:hover)]:hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:[@media(hover:hover)]:hover:bg-[#4A4A4C] text-black dark:text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)]'
-                    : images.length === 0 || isExporting
+                    : images.length === 0
                       ? 'w-full rounded-[50px] bg-white/50 dark:bg-[#3A3A3C]/50 text-black/30 dark:text-white/30 cursor-not-allowed'
                       : 'w-full rounded-[50px] bg-white [@media(hover:hover)]:hover:bg-[#E8E8E8] dark:bg-[#3A3A3C] dark:[@media(hover:hover)]:hover:bg-[#4A4A4C] text-black dark:text-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.09)]'}`}
               >
-                {activeSetting ? 'OK' : isExporting ? <span className="animate-pulse">RENDERING...</span> : 'EXPORT'}
+                {activeSetting ? 'OK' : 'EXPORT'}
               </button>
+              )}
             </div>
           </div>
         </div>
