@@ -170,16 +170,15 @@ export default function App() {
     const fRect = frameEl.getBoundingClientRect();
     const visibleLeft = cRect.left + 11;
     const visibleRight = cRect.right - 11;
+    const scrollBehavior = isPlaying ? 'instant' : 'smooth';
     if (fRect.right > visibleRight) {
-      // Going forward — current frame at left edge of new page
       const targetScroll = Math.round(frameEl.offsetLeft - 11);
-      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+      container.scrollTo({ left: Math.max(0, targetScroll), behavior: scrollBehavior });
     } else if (fRect.left < visibleLeft) {
-      // Going backward — current frame at right edge of new page
       const targetScroll = Math.round(frameEl.offsetLeft + frameEl.offsetWidth + 11 - container.clientWidth);
-      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+      container.scrollTo({ left: Math.max(0, targetScroll), behavior: scrollBehavior });
     }
-  }, [currentFrame, images.length, isDragging]);
+  }, [currentFrame, images.length, isDragging, isPlaying]);
 
   const isAnyDragging = isDragging || isSizeDragging;
   useEffect(() => {
@@ -787,8 +786,8 @@ export default function App() {
       {images.length === 0 && isLoading && (
         <div className="relative z-10 flex flex-col items-center justify-center flex-1">
           <span className="text-[9px] tracking-widest uppercase mb-3">LOADING {loadingProgress}%</span>
-          <div className="w-[120px] h-[3px] bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full bg-black dark:bg-white rounded-full transition-all duration-200" style={{ width: `${loadingProgress}%` }} />
+          <div className="w-[160px] h-[59px] bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[30px] overflow-hidden">
+            <div className="h-full bg-black dark:bg-white rounded-[30px] transition-all duration-200" style={{ width: `${loadingProgress}%` }} />
           </div>
         </div>
       )}
@@ -806,8 +805,8 @@ export default function App() {
           {isLoading && (
             <div className="absolute inset-0 bg-white/90 dark:bg-black/90 backdrop-blur-md z-50 flex flex-col items-center justify-center pointer-events-none rounded-[24px]">
               <span className="text-[9px] tracking-widest uppercase mb-3">LOADING {loadingProgress}%</span>
-              <div className="w-[120px] h-[3px] bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-                <div className="h-full bg-black dark:bg-white rounded-full transition-all duration-200" style={{ width: `${loadingProgress}%` }} />
+              <div className="w-[160px] h-[59px] bg-[#f4f4f4] dark:bg-[#1C1C1E] rounded-[30px] overflow-hidden">
+                <div className="h-full bg-black dark:bg-white rounded-[30px] transition-all duration-200" style={{ width: `${loadingProgress}%` }} />
               </div>
             </div>
           )}
