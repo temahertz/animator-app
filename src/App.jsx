@@ -49,6 +49,8 @@ export default function App() {
   const [currentFrame, setCurrentFrame] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [touchDraggedIndex, setTouchDraggedIndex] = useState(null);
@@ -218,17 +220,27 @@ export default function App() {
       img.onerror = () => resolve(url);
       img.src = url;
     });
-    const newImages = await Promise.all(filesToAdd.map(async (file) => {
+    if (filesToAdd.length > 3) {
+      setIsLoading(true);
+      setLoadingProgress(0);
+    }
+    const newImages = [];
+    for (let i = 0; i < filesToAdd.length; i++) {
+      const file = filesToAdd[i];
       const url = await resizeImage(file);
       const brightness = await getEdgeBrightness(url);
-      return {
+      newImages.push({
         id: Math.random().toString(36).substr(2, 9),
         url,
         file,
         lightEdges: brightness > 240
-      };
-    }));
+      });
+      if (filesToAdd.length > 3) {
+        setLoadingProgress(Math.round(((i + 1) / filesToAdd.length) * 100));
+      }
+    }
     setImages(prev => [...prev, ...newImages]);
+    setIsLoading(false);
   };
 
   const onDropZone = (e) => {
@@ -751,7 +763,7 @@ export default function App() {
       </div>
 
       {/* Zero State */}
-      {images.length === 0 && (
+      {images.length === 0 && !isLoading && (
         <div
           className="relative z-10 flex flex-col items-center justify-center flex-1"
           onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
@@ -771,6 +783,16 @@ export default function App() {
         </div>
       )}
 
+      {/* Zero State Loading */}
+      {images.length === 0 && isLoading && (
+        <div className="relative z-10 flex flex-col items-center justify-center flex-1">
+          <span className="text-[9px] tracking-widest uppercase mb-3">LOADING {loadingProgress}%</span>
+          <div className="w-[120px] h-[3px] bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-black dark:bg-white rounded-full transition-all duration-200" style={{ width: `${loadingProgress}%` }} />
+          </div>
+        </div>
+      )}
+
       {/* Body — Workspace */}
       {images.length > 0 && (
         <div
@@ -780,6 +802,15 @@ export default function App() {
           onDragLeave={() => setIsDraggingOver(false)}
           onDrop={onDropZone}
         >
+          {/* Loading overlay */}
+          {isLoading && (
+            <div className="absolute inset-0 bg-white/90 dark:bg-black/90 backdrop-blur-md z-50 flex flex-col items-center justify-center pointer-events-none rounded-[24px]">
+              <span className="text-[9px] tracking-widest uppercase mb-3">LOADING {loadingProgress}%</span>
+              <div className="w-[120px] h-[3px] bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-black dark:bg-white rounded-full transition-all duration-200" style={{ width: `${loadingProgress}%` }} />
+              </div>
+            </div>
+          )}
           {/* Drag overlay */}
           {isDraggingOver && (
             <div className="absolute inset-0 bg-white/90 dark:bg-black/90 backdrop-blur-md z-50 flex flex-col items-center justify-center pointer-events-none rounded-[24px]">
