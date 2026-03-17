@@ -1181,7 +1181,7 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <p className="relative z-10 text-[9px] leading-[1.2] text-center text-black dark:text-white shrink-0 mt-[15px] tracking-[0.15em] uppercase">
+      <p className="relative z-10 text-[9px] leading-[1.2] text-center text-black dark:text-white shrink-0 mt-[15px] uppercase">
         FTF.ARTEMHERTZ.COM
       </p>
 
