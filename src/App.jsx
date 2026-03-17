@@ -1181,7 +1181,7 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <p className="relative z-10 text-[9px] leading-[1.2] text-center text-[#828282] w-[214px] shrink-0 mt-[15px]">
+      <p className="relative z-10 text-[9px] leading-[1.2] text-center text-black dark:text-white w-[214px] shrink-0 mt-[15px]">
         All image processing happens locally in your browser. We never upload, store, or see your files.
       </p>
 
